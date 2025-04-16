@@ -56,6 +56,9 @@ export default async function DashboardLayout({
             <Link href="/dashboard/templates" className="hover:text-primary font-medium">
               Templates
             </Link>
+            <Link href="/dashboard/contacts" className="hover:text-primary font-medium">
+              Contact Lists
+            </Link>
             {/* Add other dashboard links here */}
           </div>
           <div className="flex items-center space-x-2">
