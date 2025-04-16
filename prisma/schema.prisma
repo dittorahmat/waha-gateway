@@ -64,8 +64,15 @@ model User {
     accounts      Account[]
     sessions      Session[]
     posts         Post[]
-    createdAt   DateTime @default(now())
-    updatedAt   DateTime @updatedAt
+    createdAt     DateTime @default(now())
+    updatedAt     DateTime @updatedAt
+
+    // WAHA Gateway specific models
+    wahaSessions      WahaSession[]
+    messageTemplates  MessageTemplate[]
+    contactLists      ContactList[]
+    mediaLibraryItems MediaLibraryItem[]
+    campaigns         Campaign[]
 }
 
 model VerificationToken {
@@ -74,4 +81,103 @@ model VerificationToken {
     expires    DateTime
 
     @@unique([identifier, token])
+}
+
+// WAHA Gateway specific models
+
+model WahaSession {
+    id          String   @id @default(cuid())
+    userId      String
+    sessionName String   // Unique per user enforced at application level or via @@unique([userId, sessionName])
+    status      String   // Consider Enum: "Starting", "Running", "Stopped", "Error"
+    createdAt   DateTime @default(now())
+    updatedAt   DateTime @updatedAt
+
+    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+    @@unique([userId, sessionName]) // Ensure session names are unique per user
+    @@index([userId])
+}
+
+model MessageTemplate {
+    id          String   @id @default(cuid())
+    userId      String
+    name        String
+    textContent String   @db.Text
+    createdAt   DateTime @default(now())
+    updatedAt   DateTime @updatedAt
+
+    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+    campaigns Campaign[] // Relation to campaigns using this template
+
+    @@index([userId])
+}
+
+model ContactList {
+    id           String   @id @default(cuid())
+    userId       String
+    name         String
+    contactCount Int      @default(0)
+    createdAt    DateTime @default(now())
+
+    user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+    contacts Contact[] // Relation to contacts in this list
+    campaigns Campaign[] // Relation to campaigns using this list
+
+    @@index([userId])
+}
+
+model Contact {
+    id            String  @id @default(cuid())
+    contactListId String
+    phoneNumber   String
+    firstName     String?
+
+    contactList ContactList @relation(fields: [contactListId], references: [id], onDelete: Cascade)
+
+    @@index([contactListId])
+    @@index([phoneNumber]) // Index for searching contacts by phone number
+    // Consider @@unique([contactListId, phoneNumber]) if phone numbers must be unique within a list
+}
+
+model MediaLibraryItem {
+    id          String   @id @default(cuid())
+    userId      String
+    filename    String
+    storagePath String   @unique // Path in storage (e.g., S3 key, local path)
+    mimeType    String
+    createdAt   DateTime @default(now())
+
+    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+    campaigns Campaign[] // Relation to campaigns using this media item
+
+    @@index([userId])
+}
+
+model Campaign {
+    id                        String   @id @default(cuid())
+    userId                    String
+    name                      String
+    contactListId             String
+    messageTemplateId         String
+    mediaLibraryItemId        String?  // Optional media attachment
+    defaultNameValue          String   // Default value if contact's firstName is null
+    scheduledAt               DateTime // When the campaign is scheduled to start
+    status                    String   // e.g., "Draft", "Scheduled", "Running", "Paused", "Completed", "Failed"
+    totalContacts             Int      // Snapshot of total contacts when started
+    sentCount                 Int      @default(0)
+    failedCount               Int      @default(0)
+    lastProcessedContactIndex Int?     // For resuming paused campaigns
+    createdAt                 DateTime @default(now())
+    startedAt                 DateTime? // When the campaign actually started running
+    completedAt               DateTime? // When the campaign finished or failed completely
+
+    user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+    contactList      ContactList       @relation(fields: [contactListId], references: [id], onDelete: Restrict) // Prevent deleting list if used in campaign? Or Cascade?
+    messageTemplate  MessageTemplate   @relation(fields: [messageTemplateId], references: [id], onDelete: Restrict) // Prevent deleting template if used
+    mediaLibraryItem MediaLibraryItem? @relation(fields: [mediaLibraryItemId], references: [id], onDelete: SetNull) // Allow deleting media, just remove link
+
+    @@index([userId])
+    @@index([status])
+    @@index([scheduledAt])
 }
