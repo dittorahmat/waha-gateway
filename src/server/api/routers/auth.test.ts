@@ -19,13 +19,21 @@ vi.mock('~/server/db', () => ({
 
 // Mock the 'bcryptjs' module
 vi.mock('bcryptjs', async (importOriginal) => {
-    const actualBcrypt = await importOriginal<typeof bcrypt>();
+    // Import the original module to potentially spread its other exports
+    const actualBcrypt = await importOriginal<typeof import('bcryptjs')>();
+    // Define the mock function *inside* the factory
+    const mockHash = vi.fn(async (password: string, salt: string | number) => {
+        const saltRounds = typeof salt === 'number' ? salt : 10;
+        return Promise.resolve(`hashed_${password}_${saltRounds}`); // Default implementation
+    });
     return {
-        ...actualBcrypt,
-        hash: vi.fn(async (password: string, salt: string | number) => {
-            const saltRounds = typeof salt === 'number' ? salt : 10;
-            return Promise.resolve(`hashed_${password}_${saltRounds}`);
-        }),
+        // Provide a default export containing the mocked hash
+        default: {
+            ...actualBcrypt, // Spread other exports from the original module
+            hash: mockHash, // Override hash with our mock
+        },
+        // Also provide named export for hash if needed
+        hash: mockHash,
     };
 });
 
