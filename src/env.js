@@ -14,6 +14,8 @@ export const env = createEnv({
     // AUTH_DISCORD_ID: z.string(), // Removed Discord ID validation
     // AUTH_DISCORD_SECRET: z.string(), // Removed Discord Secret validation
     DATABASE_URL: z.string().url(),
+    WAHA_BASE_URL: z.string().url(), // Added WAHA Base URL
+    WAHA_API_KEY: z.string(), // Added WAHA API Key
     NODE_ENV: z
       .enum(["development", "test", "production"])
       .default("development"),
@@ -37,6 +39,8 @@ export const env = createEnv({
     // AUTH_DISCORD_ID: process.env.AUTH_DISCORD_ID, // Removed Discord ID runtime env
     // AUTH_DISCORD_SECRET: process.env.AUTH_DISCORD_SECRET, // Removed Discord Secret runtime env
     DATABASE_URL: process.env.DATABASE_URL,
+    WAHA_BASE_URL: process.env.WAHA_BASE_URL, // Added WAHA Base URL
+    WAHA_API_KEY: process.env.WAHA_API_KEY, // Added WAHA API Key
     NODE_ENV: process.env.NODE_ENV,
   },
   /**

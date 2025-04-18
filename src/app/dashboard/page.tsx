@@ -1,6 +1,7 @@
 import React from "react";
 import { auth } from "~/server/auth"; // Import the auth function
 import { redirect } from "next/navigation";
+import { ConnectionStatus } from "./_components/ConnectionStatus"; // Import the component
 
 const DashboardPage = async () => {
   const session = await auth(); // Get the session server-side
@@ -14,6 +15,12 @@ const DashboardPage = async () => {
     <div className="container mx-auto py-10">
       <h1 className="text-3xl font-bold mb-4">Dashboard</h1>
       <p>Welcome, {session.user.email ?? session.user.name ?? "User"}!</p>
+
+      {/* WAHA Connection Status */}
+      <div className="mt-6">
+        <ConnectionStatus />
+      </div>
+
       {/* Add more dashboard content here */}
     </div>
   );
