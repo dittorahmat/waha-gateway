@@ -1,9 +1,8 @@
 import React from "react";
 import Link from "next/link";
-import { auth } from "~/server/auth";
+import { auth, signOut } from "~/server/auth"; // Import signOut
 import { redirect } from "next/navigation";
 import { Button } from "@/components/ui/button";
-// We might add a sign-out button later
 
 // Simple Nav Component (can be extracted later if needed)
 function DashboardNav() {
@@ -64,8 +63,16 @@ export default async function DashboardLayout({
           <div className="flex items-center space-x-2">
              {/* Placeholder for User menu / Sign out */}
              <span className="text-sm">{userEmail}</span>
-             {/* TODO: Add Sign Out Button */}
-             {/* Example: <form action={async () => { 'use server'; await signOut(); }}><Button type="submit" variant="outline" size="sm">Sign Out</Button></form> */}
+             <form
+               action={async () => {
+                 "use server";
+                 await signOut({ redirectTo: "/" }); // Redirect to home page after sign out
+               }}
+             >
+               <Button type="submit" variant="outline" size="sm">
+                 Sign Out
+               </Button>
+             </form>
           </div>
         </div>
       </nav>

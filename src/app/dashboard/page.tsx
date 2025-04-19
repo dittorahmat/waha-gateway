@@ -17,7 +17,7 @@ const DashboardPage = async () => {
       <p>Welcome, {session.user.email ?? session.user.name ?? "User"}!</p>
 
       {/* WAHA Connection Status */}
-      <div className="mt-6">
+      <div className="mt-6 flex justify-center"> {/* Added flex and justify-center */}
         <ConnectionStatus />
       </div>
 

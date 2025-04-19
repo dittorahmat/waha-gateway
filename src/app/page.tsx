@@ -1,69 +1,110 @@
 import Link from "next/link";
-
-import { LatestPost } from "~/app/_components/post";
+import { redirect } from "next/navigation";
 import { auth } from "~/server/auth";
-import { api, HydrateClient } from "~/trpc/server";
 
 export default async function Home() {
-  const hello = await api.post.hello({ text: "from tRPC" });
   const session = await auth();
 
+  // Redirect logged-in users to the dashboard
   if (session?.user) {
-    void api.post.getLatest.prefetch();
+    redirect("/dashboard");
   }
 
+  // Render the landing page for logged-out users
   return (
-    <HydrateClient>
-      <main className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-[#2e026d] to-[#15162c] text-white">
-        <div className="container flex flex-col items-center justify-center gap-12 px-4 py-16">
-          <h1 className="text-5xl font-extrabold tracking-tight sm:text-[5rem]">
-            Create <span className="text-[hsl(280,100%,70%)]">T3</span> App
+    <main className="flex min-h-screen flex-col">
+      {/* Hero Section */}
+      <section className="flex flex-1 flex-col items-center justify-center bg-[#128C7E] px-4 py-16 text-white sm:py-24">
+        <div className="container mx-auto max-w-4xl text-center">
+          <h1 className="mb-4 text-4xl font-extrabold tracking-tight sm:text-5xl md:text-6xl">
+            Automate Your WhatsApp Promotions Effortlessly
           </h1>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:gap-8">
+          <p className="mb-8 text-lg text-gray-200 sm:text-xl md:text-2xl">
+            Schedule templated messages, manage contacts via CSV, and engage your
+            audience directly via WhatsApp using your own number.
+          </p>
+          <div className="flex flex-col justify-center gap-4 sm:flex-row">
             <Link
-              className="flex max-w-xs flex-col gap-4 rounded-xl bg-white/10 p-4 hover:bg-white/20"
-              href="https://create.t3.gg/en/usage/first-steps"
-              target="_blank"
+              href="/auth/signup"
+              className="rounded-full bg-[#25D366] px-8 py-3 font-semibold text-white no-underline transition hover:bg-opacity-90"
             >
-              <h3 className="text-2xl font-bold">First Steps →</h3>
-              <div className="text-lg">
-                Just the basics - Everything you need to know to set up your
-                database and authentication.
-              </div>
+              Sign Up Now
             </Link>
             <Link
-              className="flex max-w-xs flex-col gap-4 rounded-xl bg-white/10 p-4 hover:bg-white/20"
-              href="https://create.t3.gg/en/introduction"
-              target="_blank"
+              href="/auth/signin"
+              className="rounded-full bg-white/20 px-8 py-3 font-semibold text-white no-underline transition hover:bg-white/30"
             >
-              <h3 className="text-2xl font-bold">Documentation →</h3>
-              <div className="text-lg">
-                Learn more about Create T3 App, the libraries it uses, and how
-                to deploy it.
-              </div>
+              Sign In
             </Link>
           </div>
-          <div className="flex flex-col items-center gap-2">
-            <p className="text-2xl text-white">
-              {hello ? hello.greeting : "Loading tRPC query..."}
-            </p>
+        </div>
+      </section>
 
-            <div className="flex flex-col items-center justify-center gap-4">
-              <p className="text-center text-2xl text-white">
-                {session && <span>Logged in as {session.user?.name}</span>}
+      {/* Features Section */}
+      <section className="bg-white px-4 py-16 sm:py-24">
+        <div className="container mx-auto max-w-4xl">
+          <h2 className="mb-12 text-center text-3xl font-bold text-[#111B21] sm:text-4xl">
+            Key Features
+          </h2>
+          <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-4">
+            <div className="text-center">
+              <h3 className="mb-2 text-xl font-semibold text-[#075E54]">
+                Connect Your Number
+              </h3>
+              <p className="text-gray-600">
+                Easily link your WhatsApp account via QR code or pairing code.
               </p>
-              <Link
-                href={session ? "/api/auth/signout" : "/api/auth/signin"}
-                className="rounded-full bg-white/10 px-10 py-3 font-semibold no-underline transition hover:bg-white/20"
-              >
-                {session ? "Sign out" : "Sign in"}
-              </Link>
+            </div>
+            <div className="text-center">
+              <h3 className="mb-2 text-xl font-semibold text-[#075E54]">
+                Manage Contacts
+              </h3>
+              <p className="text-gray-600">
+                Upload and organize your contact lists simply using CSV files.
+              </p>
+            </div>
+            <div className="text-center">
+              <h3 className="mb-2 text-xl font-semibold text-[#075E54]">
+                Create Templates
+              </h3>
+              <p className="text-gray-600">
+                Design reusable message templates with personalization support.
+              </p>
+            </div>
+            <div className="text-center">
+              <h3 className="mb-2 text-xl font-semibold text-[#075E54]">
+                Schedule Campaigns
+              </h3>
+              <p className="text-gray-600">
+                Send bulk promotional messages at the date and time you choose.
+              </p>
             </div>
           </div>
-
-          {session?.user && <LatestPost />}
         </div>
-      </main>
-    </HydrateClient>
+      </section>
+
+      {/* Disclaimer Section */}
+      <section className="bg-[#ECE5DD] px-4 py-8 sm:py-12">
+        <div className="container mx-auto max-w-4xl text-center">
+          <h3 className="mb-2 text-lg font-semibold text-[#111B21]">
+            Important Notice
+          </h3>
+          <p className="text-sm text-gray-700">
+            Please be aware that using automation tools with WhatsApp carries a
+            risk of your number being blocked by WhatsApp if misused for spam or
+            excessive messaging. Use this service responsibly and at your own
+            risk.
+          </p>
+        </div>
+      </section>
+
+      {/* Footer */}
+      <footer className="bg-[#075E54] px-4 py-6 text-white">
+        <div className="container mx-auto text-center text-sm">
+          &copy; {new Date().getFullYear()} WAHA Gateway Dashboard. All rights
+          reserved.
+        </div>
+      </footer>
+    </main>
   );
 }
