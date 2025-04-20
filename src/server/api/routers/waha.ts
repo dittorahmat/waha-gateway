@@ -287,4 +287,68 @@ export const wahaRouter = createTRPCRouter({
       });
     }
   }),
+
+  /**
+   * Sends a text message using the user's active WAHA session.
+   */
+  sendTextMessage: protectedProcedure
+    .input(
+      z.object({
+        // Basic validation: number + @c.us or @g.us
+        chatId: z.string().regex(/^(\d+@c\.us|\d+-\d+@g\.us)$/, {
+          message: "Invalid Chat ID format (e.g., 1234567890@c.us or 123456-7890@g.us)",
+        }),
+        text: z.string().min(1, { message: "Message cannot be empty" }),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      // Verify the user owns the 'default' session
+      const wahaSession = await db.wahaSession.findFirst({
+        where: { userId: userId, sessionName: WAHA_DEFAULT_SESSION_NAME },
+      });
+
+      if (!wahaSession) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You do not have an active WAHA session to send messages.",
+        });
+      }
+
+      // Optional: Check if the session status is 'WORKING' before sending
+      // const sessionStatus = await wahaClient.getSessionStatus(WAHA_DEFAULT_SESSION_NAME);
+      // if (sessionStatus.status !== 'WORKING') {
+      //   throw new TRPCError({
+      //     code: 'PRECONDITION_FAILED',
+      //     message: `Session is not in 'WORKING' state (current: ${sessionStatus.status}). Cannot send message.`,
+      //   });
+      // }
+
+      try {
+        const result = await wahaClient.sendTextMessage(
+          WAHA_DEFAULT_SESSION_NAME,
+          input.chatId,
+          input.text,
+        );
+
+        console.log(
+          `Text message sent successfully by user ${userId} to ${input.chatId}. API Response:`,
+          result,
+        );
+        // Return success and potentially the message ID from WAHA response
+        // Ensure result and result.id are checked for existence if needed
+        return { success: true, messageId: result?.id, result };
+      } catch (error) {
+        console.error(
+          `Failed to send text message via session ${WAHA_DEFAULT_SESSION_NAME} for user ${userId} to ${input.chatId}:`,
+          error,
+        );
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: error instanceof Error ? error.message : "Failed to send message.",
+          cause: error,
+        });
+      }
+    }),
 });

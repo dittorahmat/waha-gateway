@@ -172,8 +172,8 @@ export function ConnectionStatus() {
                       : `data:image/png;base64,${data.qrCode}`
                   }
                   alt="WhatsApp QR Code"
-                  width={250}
-                  height={250}
+                  width={500}
+                  height={500}
                   priority // Load QR code quickly
                 />
               ) : (

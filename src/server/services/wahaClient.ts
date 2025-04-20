@@ -201,23 +201,34 @@ export class WahaApiClient {
    */
   async getQrCode(sessionName: string): Promise<string | null> {
     try {
-      // Use the screenshot endpoint as suggested
-      const response = await this.client.get<{ type: string; data: string }>(
+      // Use the screenshot endpoint, expecting JSON like { data: "base64..." }
+      const response = await this.client.get<{ data: string }>( // Expect JSON object with 'data' field
         `/api/screenshot?session=${sessionName}`, // Use query parameter
         {
-          // Expecting a JSON response like { type: 'Buffer', data: 'base64...' }
-          // Axios should handle JSON parsing by default
+          // No responseType needed, default is JSON
         },
       );
       console.log(`WAHA: Screenshot (QR) fetched for session '${sessionName}'.`);
-      // Extract the base64 data from the 'data' field
-      return response.data?.data ?? null;
+
+      // Extract base64 data and prepend data URI scheme
+      const base64 = response.data?.data;
+      if (!base64) {
+        console.error(`WAHA: Screenshot response for '${sessionName}' did not contain 'data' field.`);
+        return null; // Or throw error
+      }
+      const dataUri = `data:image/png;base64,${base64}`;
+
+      return dataUri;
     } catch (error) {
       console.error(
         `WAHA: Failed to get screenshot (QR) for session '${sessionName}':`,
         error,
       );
       // Re-throw the error so the calling function knows it failed
+      // Returning null might be better depending on how getSessionState handles it,
+      // but throwing ensures the error is propagated clearly.
+      // Returning null might be better depending on how getSessionState handles it,
+      // but throwing ensures the error is propagated clearly.
       throw new Error(`Failed to get WAHA screenshot for '${sessionName}'.`, { cause: error });
     }
   }
