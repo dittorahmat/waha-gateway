@@ -1,7 +1,7 @@
 import type { Campaign, ContactList, MessageTemplate, MediaLibraryItem, Contact } from '@prisma/client';
 import { PrismaClient } from '@prisma/client';
 import { TRPCError } from '@trpc/server'; // Keep for potential future use
-import { WahaApiClient } from './wahaClient'; // Added import
+import { WahaApiClient, type WAHASessionStatus } from './wahaClient'; // Added import + WAHASessionStatus
 import * as fs from 'fs/promises'; // Added import
 import { env } from '~/env'; // Import env
 
@@ -65,8 +65,10 @@ export class CampaignRunnerService {
 
             // Fetch Waha Session Name associated with the campaign's user
             console.log(`[Campaign ${campaignId}] Fetching WAHA session for user ${campaign.userId}...`);
-            const wahaSession = await this.db.wahaSession.findUnique({
-                where: { userId: campaign.userId }, // Assuming unique session per user for now
+            // Find the *first* WAHA session associated with the user.
+            // Using findFirst as userId alone is not a unique constraint per the schema.
+            const wahaSession = await this.db.wahaSession.findFirst({
+                where: { userId: campaign.userId },
                 select: { sessionName: true }
             });
 
@@ -141,7 +143,44 @@ export class CampaignRunnerService {
                 // Format chatId for WAHA
                 const chatId = `${phoneNumber}@c.us`; // Confirmed format
 
-                // --- WAHA API Call Logic ---
+                // --- BEGIN WAHA SESSION STATUS CHECK ---
+                try {
+                    console.log(`[Campaign ${campaignId} | Contact ${contactNumber}/${contacts.length}] Checking WAHA session status for ${sessionName}...`);
+                    const sessionState = await this.wahaApiClient.getSessionStatus(sessionName);
+                    const currentStatus: WAHASessionStatus = sessionState.status;
+
+                    if (currentStatus !== "WORKING") {
+                        console.warn(`[Campaign ${campaignId}] WAHA session '${sessionName}' status is '${currentStatus}', not 'WORKING'. Pausing campaign.`);
+                        // Update status and save the index of the contact we were ABOUT TO process.
+                        // This ensures resume starts correctly at this contact.
+                        await this.db.campaign.update({
+                            where: { id: campaignId },
+                            data: {
+                                status: 'Paused',
+                                lastProcessedContactIndex: i
+                            },
+                        });
+                        break; // Exit the contact processing loop
+                    }
+                    console.log(`[Campaign ${campaignId} | Contact ${contactNumber}/${contacts.length}] WAHA session '${sessionName}' is WORKING. Proceeding.`);
+
+                } catch (statusCheckError) {
+                    console.error(`[Campaign ${campaignId}] CRITICAL ERROR checking WAHA session status for '${sessionName}'. Pausing campaign. Error:`, statusCheckError);
+                    // Update status and save the index of the contact we were ABOUT TO process before pausing due to error.
+                    // This ensures resume starts correctly at this contact.
+                    await this.db.campaign.update({
+                        where: { id: campaignId },
+                        data: {
+                            status: 'Paused',
+                            lastProcessedContactIndex: i
+                        },
+                    });
+                    break; // Exit the contact processing loop
+                }
+                // --- END WAHA SESSION STATUS CHECK ---
+
+
+                // --- BEGIN SEND ATTEMPT BLOCK ---
                 try {
                     if (campaign.mediaLibraryItem) {
                         // --- Send Image ---
@@ -209,11 +248,14 @@ export class CampaignRunnerService {
                     });
                     // Do NOT re-throw; continue to the next contact
                 }
+                // --- END SEND ATTEMPT BLOCK ---
 
-                // Update lastProcessedContactIndex in DB (After each contact for resilience)
-                // Note: This causes a DB write for every contact. For very large lists,
-                // batching this update (e.g., every 50 contacts) might be more performant.
-                // Ensure this happens *after* the try/catch block for the API call
+
+                // Update lastProcessedContactIndex AFTER attempting to process contact 'i'.
+                // This signifies that contact 'i' has been handled (either sent or failed).
+                // If the campaign completes normally, this index will eventually be reset to null.
+                // If it stops unexpectedly after this point but before the next iteration's
+                // status check, resuming would correctly start at i + 1.
                 await this.db.campaign.update({
                     where: { id: campaignId },
                     data: { lastProcessedContactIndex: i },
