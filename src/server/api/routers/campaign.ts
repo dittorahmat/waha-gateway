@@ -68,5 +68,45 @@ export const campaignRouter = createTRPCRouter({
       return newCampaign; // Return the created campaign object
     }),
 
+  runManually: protectedProcedure
+    .input(z.object({ campaignId: z.string().cuid({ message: "Invalid Campaign ID" }) }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+
+      // 1. Verify ownership and existence of the campaign
+      const campaign = await ctx.db.campaign.findUnique({
+          where: { id: input.campaignId, userId: userId }
+      });
+      if (!campaign) {
+          throw new TRPCError({ code: 'NOT_FOUND', message: 'Campaign not found or access denied.' });
+      }
+
+      // 2. Check if campaign is already in a final or running state
+      //    (Allow re-running 'Scheduled' or potentially 'Paused'/'Failed' in the future)
+      if (['Running', 'Completed'].includes(campaign.status)) {
+           throw new TRPCError({ code: 'BAD_REQUEST', message: `Campaign cannot be started manually, current status: ${campaign.status}.` });
+      }
+      // Optional: Add check for 'Failed' if re-running failed campaigns isn't desired yet.
+      // if (campaign.status === 'Failed') {
+      //      throw new TRPCError({ code: 'BAD_REQUEST', message: `Campaign has Failed. Cannot restart manually yet.` });
+      // }
+
+
+      // 3. Lazy import and run the service
+      //    Lazy import helps avoid potential circular dependencies if services call each other
+      const { CampaignRunnerService } = await import('~/server/services/campaignRunner');
+      const runner = new CampaignRunnerService(ctx.db);
+
+      // Await the runCampaign call. The API request will wait until the
+      // simulation completes or fails. The service handles status updates internally.
+      await runner.runCampaign(input.campaignId);
+
+      // Note: Errors within runCampaign are caught there and update the status to Failed.
+      // If runCampaign itself throws an unexpected error *before* its internal try/catch,
+      // tRPC will handle it and return a 500 Internal Server Error.
+
+      return { success: true, message: "Campaign run triggered. Check logs and campaign status for results." };
+    }),
+
   // TODO: Add other campaign-related procedures (list, get, update, delete) if needed later
 });

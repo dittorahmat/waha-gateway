@@ -394,5 +394,46 @@ describe("Campaign Router", () => {
      );
    });
 
+  it("should run a campaign and update status and index via runManually", async () => {
+    // Create a contact list with two contacts
+    const contactList = await db.contactList.create({
+      data: { userId: testUserId, name: "Runner Test List", contactCount: 2 },
+    });
+    await db.contact.createMany({
+      data: [
+        { contactListId: contactList.id, phoneNumber: "+10000000001", firstName: "Alice" },
+        { contactListId: contactList.id, phoneNumber: "+10000000002", firstName: "Bob" },
+      ],
+    });
+    // Create a message template
+    const template = await db.messageTemplate.create({
+      data: { userId: testUserId, name: "Runner Test Template", textContent: "Hi {Name}!" },
+    });
+    // Create a campaign in Scheduled status
+    const campaign = await db.campaign.create({
+      data: {
+        userId: testUserId,
+        name: "Runner Test Campaign",
+        contactListId: contactList.id,
+        messageTemplateId: template.id,
+        defaultNameValue: "Friend",
+        scheduledAt: new Date(),
+        status: "Scheduled",
+        totalContacts: 2,
+        sentCount: 0,
+        failedCount: 0,
+      },
+    });
+    // Call runManually
+    const result = await caller.campaign.runManually({ campaignId: campaign.id });
+    expect(result).toEqual({ success: true });
+    // Check campaign status and progress
+    const updated = await db.campaign.findUnique({ where: { id: campaign.id } });
+    expect(updated?.status).toBe("Completed");
+    expect(updated?.lastProcessedContactIndex).toBe(2);
+    expect(updated?.startedAt).toBeInstanceOf(Date);
+    expect(updated?.completedAt).toBeInstanceOf(Date);
+  });
+
   // TODO: Add tests for other campaign procedures (list, get, update, delete) when implemented.
 });
