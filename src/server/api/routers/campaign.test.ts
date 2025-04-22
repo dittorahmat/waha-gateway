@@ -175,7 +175,111 @@ describe("Campaign Router", () => {
     expect(dbCampaign?.mediaLibraryItemId).toBe(input.mediaLibraryItemId);
   });
 
-   it("should use default 'Customer' for defaultNameValue if not provided", async () => {
+  // Ownership: Contact List
+  it("should fail if the contact list is not owned by the user", async () => {
+    const input = {
+      name: "Ownership Test",
+      contactListId: otherUserContactList.id,
+      messageTemplateId: testUserTemplate.id,
+      defaultNameValue: "Customer",
+      scheduledAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    };
+    await expect(caller.campaign.create(input)).rejects.toThrow(
+      expect.objectContaining({
+        code: 'NOT_FOUND',
+        message: expect.stringContaining('Contact List'),
+      })
+    );
+  });
+
+  // Ownership: Message Template
+  it("should fail if the message template is not owned by the user", async () => {
+    const input = {
+      name: "Ownership Test",
+      contactListId: testUserContactList.id,
+      messageTemplateId: otherUserTemplate.id,
+      defaultNameValue: "Customer",
+      scheduledAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    };
+    await expect(caller.campaign.create(input)).rejects.toThrow(
+      expect.objectContaining({
+        code: 'NOT_FOUND',
+        message: expect.stringContaining('Message Template'),
+      })
+    );
+  });
+
+  // Ownership: Media Item
+  it("should fail if the media item is not owned by the user", async () => {
+    const input = {
+      name: "Ownership Test",
+      contactListId: testUserContactList.id,
+      messageTemplateId: testUserTemplate.id,
+      mediaLibraryItemId: otherUserMediaItem.id,
+      defaultNameValue: "Customer",
+      scheduledAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    };
+    await expect(caller.campaign.create(input)).rejects.toThrow(
+      expect.objectContaining({
+        code: 'NOT_FOUND',
+        message: expect.stringContaining('Media Item'),
+      })
+    );
+  });
+
+  // Not Found: Contact List
+  it("should fail if the contact list does not exist", async () => {
+    const input = {
+      name: "NotFound Test",
+      contactListId: generateNonExistentCuid(),
+      messageTemplateId: testUserTemplate.id,
+      defaultNameValue: "Customer",
+      scheduledAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    };
+    await expect(caller.campaign.create(input)).rejects.toThrow(
+      expect.objectContaining({
+        code: 'NOT_FOUND',
+        message: expect.stringContaining('Contact List'),
+      })
+    );
+  });
+
+  // Not Found: Message Template
+  it("should fail if the message template does not exist", async () => {
+    const input = {
+      name: "NotFound Test",
+      contactListId: testUserContactList.id,
+      messageTemplateId: generateNonExistentCuid(),
+      defaultNameValue: "Customer",
+      scheduledAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    };
+    await expect(caller.campaign.create(input)).rejects.toThrow(
+      expect.objectContaining({
+        code: 'NOT_FOUND',
+        message: expect.stringContaining('Message Template'),
+      })
+    );
+  });
+
+  // Not Found: Media Item
+  it("should fail if the media item does not exist", async () => {
+    const input = {
+      name: "NotFound Test",
+      contactListId: testUserContactList.id,
+      messageTemplateId: testUserTemplate.id,
+      mediaLibraryItemId: generateNonExistentCuid(),
+      defaultNameValue: "Customer",
+      scheduledAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    };
+    await expect(caller.campaign.create(input)).rejects.toThrow(
+      expect.objectContaining({
+        code: 'NOT_FOUND',
+        message: expect.stringContaining('Media Item'),
+      })
+    );
+  });
+
+  it("should use default 'Customer' for defaultNameValue if not provided", async () => {
      const input = {
        name: "Default Name Test",
        contactListId: testUserContactList.id,
