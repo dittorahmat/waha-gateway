@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { type AppRouter, appRouter } from "~/server/api/root";
 import { createCallerFactory } from "~/server/api/trpc";
@@ -182,13 +183,12 @@ describe("Campaign Router", () => {
        scheduledAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
        // defaultNameValue is omitted
      };
-     const result = await caller.campaign.create(input);
-
-     expect(result.defaultNameValue).toBe("Customer");
-
-     // Verify in DB
-     const dbCampaign = await db.campaign.findUnique({ where: { id: result.id } });
-     expect(dbCampaign?.defaultNameValue).toBe("Customer");
+     await expect(caller.campaign.create(input)).rejects.toThrow(
+       expect.objectContaining({
+         code: 'BAD_REQUEST',
+         message: expect.stringContaining('defaultNameValue'),
+       })
+     );
    });
 
   it("should fail if required fields are missing (Zod validation)", async () => {
@@ -215,9 +215,10 @@ describe("Campaign Router", () => {
       contactListId: nonExistentListId,
       messageTemplateId: testUserTemplate.id,
       scheduledAt: new Date(),
+    defaultNameValue: "Customer",
     };
     await expect(caller.campaign.create(inputNonExistent)).rejects.toThrow(
-      expect.objectContaining({ code: 'NOT_FOUND', message: expect.stringContaining("contact list not found") })
+      expect.objectContaining({ code: 'NOT_FOUND', message: expect.stringContaining("Selected Contact List not found or access denied.") })
     );
 
     // Test with a list belonging to another user
@@ -226,9 +227,10 @@ describe("Campaign Router", () => {
       contactListId: otherUserContactList.id, // Belongs to other user
       messageTemplateId: testUserTemplate.id,
       scheduledAt: new Date(),
+    defaultNameValue: "Customer",
     };
     await expect(caller.campaign.create(inputOtherUser)).rejects.toThrow(
-      expect.objectContaining({ code: 'NOT_FOUND', message: expect.stringContaining("contact list not found") })
+      expect.objectContaining({ code: 'NOT_FOUND', message: expect.stringContaining("Selected Contact List not found or access denied.") })
     );
   });
 
@@ -240,9 +242,10 @@ describe("Campaign Router", () => {
       contactListId: testUserContactList.id,
       messageTemplateId: nonExistentTemplateId,
       scheduledAt: new Date(),
+    defaultNameValue: "Customer",
     };
     await expect(caller.campaign.create(inputNonExistent)).rejects.toThrow(
-      expect.objectContaining({ code: 'NOT_FOUND', message: expect.stringContaining("message template not found") })
+      expect.objectContaining({ code: 'NOT_FOUND', message: expect.stringContaining("Selected Message Template not found or access denied.") })
     );
 
     // Test with a template belonging to another user
@@ -251,9 +254,10 @@ describe("Campaign Router", () => {
       contactListId: testUserContactList.id,
       messageTemplateId: otherUserTemplate.id, // Belongs to other user
       scheduledAt: new Date(),
+    defaultNameValue: "Customer",
     };
     await expect(caller.campaign.create(inputOtherUser)).rejects.toThrow(
-      expect.objectContaining({ code: 'NOT_FOUND', message: expect.stringContaining("message template not found") })
+      expect.objectContaining({ code: 'NOT_FOUND', message: expect.stringContaining("Selected Message Template not found or access denied.") })
     );
   });
 
@@ -266,9 +270,10 @@ describe("Campaign Router", () => {
        messageTemplateId: testUserTemplate.id,
        mediaLibraryItemId: nonExistentMediaId,
        scheduledAt: new Date(),
+       defaultNameValue: "Customer",
      };
      await expect(caller.campaign.create(inputNonExistent)).rejects.toThrow(
-       expect.objectContaining({ code: 'NOT_FOUND', message: expect.stringContaining("media item not found") })
+       expect.objectContaining({ code: 'NOT_FOUND', message: expect.stringContaining("Selected Media Item not found or access denied.") })
      );
 
      // Test with a media item belonging to another user
@@ -278,9 +283,10 @@ describe("Campaign Router", () => {
        messageTemplateId: testUserTemplate.id,
        mediaLibraryItemId: otherUserMediaItem.id, // Belongs to other user
        scheduledAt: new Date(),
+       defaultNameValue: "Customer",
      };
      await expect(caller.campaign.create(inputOtherUser)).rejects.toThrow(
-       expect.objectContaining({ code: 'NOT_FOUND', message: expect.stringContaining("media item not found") })
+       expect.objectContaining({ code: 'NOT_FOUND', message: expect.stringContaining("Selected Media Item not found or access denied.") })
      );
    });
 

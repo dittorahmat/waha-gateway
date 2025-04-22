@@ -3,9 +3,105 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react"; // screen, fireEvent, waitFor should be global now
+// Mock canvas for jsdom
+Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
+  value: () => ({
+    measureText: () => ({ width: 0 }),
+    // Add more mocks if needed
+  }),
+});
+
 import userEvent from "@testing-library/user-event";
 import { CampaignForm } from "./campaign-form";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { TRPCReactProvider } from "src/trpc/react";
+
+// Mock tRPC API hooks to prevent real network calls in tests
+import { vi } from "vitest";
+
+vi.mock("src/trpc/react", async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    api: {
+      ...actual.api,
+      contactList: {
+        list: {
+          useQuery: vi.fn().mockReturnValue({
+            data: [
+              { id: "list1", name: "Test List 1" },
+              { id: "list2", name: "Test List 2" }
+            ],
+            isLoading: false,
+          }),
+        },
+      },
+      template: {
+        list: {
+          useQuery: vi.fn().mockReturnValue({
+            data: [
+              { id: "template1", name: "Welcome Template" }
+            ],
+            isLoading: false,
+          }),
+        },
+      },
+      campaign: {
+        create: {
+          useMutation: vi.fn().mockImplementation((opts) => ({
+            mutate: (...args) => {
+              if (opts && opts.onSuccess) {
+                opts.onSuccess({ id: "mock-campaign-id", name: "Mock Campaign" }, ...args);
+              }
+            },
+            mutateAsync: vi.fn().mockResolvedValue({ id: "mock-campaign-id", name: "Mock Campaign" }),
+            isLoading: false,
+            isSuccess: true,
+            isError: false,
+            error: null,
+            data: { id: "mock-campaign-id", name: "Mock Campaign" },
+            reset: vi.fn(),
+          })),
+        },
+        uploadMedia: {
+          useMutation: vi.fn().mockImplementation((opts) => ({
+            mutate: (...args) => {
+              if (opts && opts.onSuccess) {
+                opts.onSuccess({ id: "mock-media-id", url: "mock-url" }, ...args);
+              }
+            },
+            mutateAsync: vi.fn().mockResolvedValue({ id: "mock-media-id", url: "mock-url" }),
+            isLoading: false,
+            isSuccess: true,
+            isError: false,
+            error: null,
+            data: { id: "mock-media-id", url: "mock-url" },
+            reset: vi.fn(),
+          })),
+        },
+      },
+      mediaLibrary: {
+        upload: {
+          useMutation: vi.fn().mockImplementation((opts) => ({
+            mutate: (...args) => {
+              if (opts && opts.onSuccess) {
+                opts.onSuccess({ id: "mock-media-id", url: "mock-url" }, ...args);
+              }
+            },
+            mutateAsync: vi.fn().mockResolvedValue({ id: "mock-media-id", url: "mock-url" }),
+            isLoading: false,
+            isSuccess: true,
+            isError: false,
+            error: null,
+            data: { id: "mock-media-id", url: "mock-url" },
+            reset: vi.fn(),
+          })),
+        },
+      },
+      // Add more mocks as needed for your tests
+    },
+  };
+});
 import { toast } from "sonner";
 import { format } from "date-fns"; // Added missing import
 
@@ -39,54 +135,6 @@ const mockContactLists = [
 const mockTemplates = [
   { id: "tmpl-1", name: "Template Alpha" },
   { id: "tmpl-2", name: "Template Beta" },
-];
-const mockMediaItems = [
-  { id: "media-1", filename: "image1.jpg", createdAt: new Date(), mimeType: "image/jpeg" },
-  { id: "media-2", filename: "image2.png", createdAt: new Date(), mimeType: "image/png" },
-];
-
-vi.mock("@/trpc/react", () => ({
-  api: {
-    contactList: {
-      list: {
-        useQuery: vi.fn(() => ({
-          data: mockContactLists,
-          isLoading: false,
-          isError: false,
-        })),
-      },
-    },
-    template: {
-      list: {
-        useQuery: vi.fn(() => ({
-          data: mockTemplates,
-          isLoading: false,
-          isError: false,
-        })),
-      },
-    },
-    mediaLibrary: {
-      list: {
-        useQuery: vi.fn(() => ({
-          data: mockMediaItems,
-          isLoading: false,
-          isError: false,
-        })),
-      },
-      upload: {
-        useMutation: vi.fn(() => ({
-          mutate: mockUploadMedia,
-          isPending: false,
-        })),
-      },
-    },
-    campaign: {
-      create: {
-        useMutation: vi.fn(() => ({
-          mutate: mockCreateCampaign,
-          isPending: false,
-        })),
-      },
     },
   },
 }));
@@ -110,7 +158,9 @@ const renderComponent = () => {
   const queryClient = new QueryClient();
   return render(
     <QueryClientProvider client={queryClient}>
-      <CampaignForm />
+      <TRPCReactProvider>
+        <CampaignForm />
+      </TRPCReactProvider>
     </QueryClientProvider>
   );
 };
@@ -246,9 +296,108 @@ describe("CampaignForm Component", () => {
     });
   });
 
-  // TODO: Add tests for image upload flow
-  // TODO: Add tests for image library selection flow
-  // TODO: Add tests for form submission with image attached
+  it("should call upload mutation and create mutation with uploaded image ID", async () => {
+    const user = userEvent.setup();
+    renderComponent();
+
+    // Mock file selection
+    const file = new File(["dummy content"], "test-image.png", { type: "image/png" });
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement; // Re-query after render
+
+    // Fill required fields
+    await user.type(screen.getByLabelText(/Campaign Name/i), "Upload Test");
+    await user.click(screen.getByRole("combobox", { name: /Contact List/i }));
+    await user.click(await screen.findByText(/List One/));
+    await user.click(screen.getByRole("combobox", { name: /Message Template/i }));
+    await user.click(await screen.findByText(/Template Alpha/));
+    // Select Date/Time (simplified interaction for test)
+    fireEvent.change(screen.getByLabelText('Date and time:'), { target: { value: new Date(2025, 10, 16, 10, 0, 0) } });
+
+    // Select image upload path
+    await user.click(screen.getByLabelText(/Attach Image/i)); // Checkbox/Radio for attaching
+    await user.click(screen.getByLabelText(/Upload New Image/i)); // Radio for upload source
+
+    // Upload the file
+    expect(fileInput).toBeInTheDocument(); // Ensure file input is visible
+    await user.upload(fileInput, file);
+
+    // Submit
+    await user.click(screen.getByRole("button", { name: /Schedule Campaign/i }));
+
+    // Assertions
+    await waitFor(() => {
+      // Verify FileReader was used (basic check)
+      expect(mockReadAsDataURL).toHaveBeenCalledWith(file);
+
+      // Verify upload mutation call
+      expect(mockUploadMedia).toHaveBeenCalledTimes(1);
+      expect(mockUploadMedia).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filename: "test-image.png",
+          mimeType: "image/png",
+          fileContentBase64: "dummycontent", // From mock FileReader result
+        }),
+        expect.anything()
+      );
+
+      // Verify create campaign call with the ID from the mocked upload response
+      expect(mockCreateCampaign).toHaveBeenCalledTimes(1);
+      expect(mockCreateCampaign).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "Upload Test",
+          mediaLibraryItemId: "new-media-1", // ID from mockUploadMedia success
+        }),
+        expect.anything()
+      );
+      expect(toast.success).toHaveBeenCalled();
+      expect(mockPush).toHaveBeenCalledWith("/dashboard/campaigns");
+    });
+  });
+
+  it("should call create mutation with selected library image ID", async () => {
+    const user = userEvent.setup();
+    renderComponent();
+
+    // Fill required fields
+    await user.type(screen.getByLabelText(/Campaign Name/i), "Library Select Test");
+    await user.click(screen.getByRole("combobox", { name: /Contact List/i }));
+    await user.click(await screen.findByText(/List Two/));
+    await user.click(screen.getByRole("combobox", { name: /Message Template/i }));
+    await user.click(await screen.findByText(/Template Beta/));
+     // Select Date/Time (simplified interaction for test)
+    fireEvent.change(screen.getByLabelText('Date and time:'), { target: { value: new Date(2025, 10, 17, 11, 0, 0) } });
+
+
+    // Select image library path
+    await user.click(screen.getByLabelText(/Attach Image/i));
+    await user.click(screen.getByLabelText(/Select from Media Library/i));
+
+    // Select an image from the library dropdown
+    await user.click(screen.getByRole("combobox", { name: /Select Image from Library/i }));
+    await user.click(await screen.findByText(mockMediaItems[1]!.filename)); // Select second item
+
+    // Submit
+    await user.click(screen.getByRole("button", { name: /Schedule Campaign/i }));
+
+    // Assertions
+    await waitFor(() => {
+      // Verify upload was NOT called
+      expect(mockUploadMedia).not.toHaveBeenCalled();
+
+      // Verify create campaign call with the selected library ID
+      expect(mockCreateCampaign).toHaveBeenCalledTimes(1);
+      expect(mockCreateCampaign).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "Library Select Test",
+          mediaLibraryItemId: mockMediaItems[1]!.id, // ID from selected library item
+        }),
+        expect.anything()
+      );
+      expect(toast.success).toHaveBeenCalled();
+      expect(mockPush).toHaveBeenCalledWith("/dashboard/campaigns");
+    });
+  });
+
   // TODO: Add tests for error handling from mutations
 
 });
