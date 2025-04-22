@@ -1,10 +1,24 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { CampaignRunnerService } from './campaignRunner';
-import type { PrismaClient, Campaign, Contact, MessageTemplate, MediaLibraryItem, ContactList } from '@prisma/client';
-import { TRPCError } from '@trpc/server'; // Although not thrown by service, good practice
+import { WahaApiClient } from './wahaClient'; // Import for mocking
+import type { PrismaClient, Campaign, Contact, MessageTemplate, MediaLibraryItem, ContactList, WahaSession } from '@prisma/client';
+import * as fs from 'fs/promises'; // Import for mocking
+
+// --- Mock Dependencies ---
+vi.mock('./wahaClient'); // Mock the entire WahaApiClient module
+vi.mock('fs/promises'); // Mock the fs/promises module
+
+const mockWahaApiClient = {
+    sendTextMessage: vi.fn(),
+    sendImageMessage: vi.fn(),
+    // Add other methods if needed by tests
+};
+
+const mockFs = {
+    readFile: vi.fn(),
+};
 
 // --- Mock Prisma Client ---
-// We mock the specific methods used by the service
 const mockDb = {
     campaign: {
         findUnique: vi.fn(),
@@ -13,10 +27,32 @@ const mockDb = {
     contact: {
         findMany: vi.fn(),
     },
-    // Add other models if the service expands its scope
+    wahaSession: { // Add mock for WahaSession
+        findUnique: vi.fn(),
+    },
 };
 
 // --- Mock Data Factories ---
+const createMockWahaSession = (overrides: Partial<WahaSession> = {}): WahaSession => ({
+    id: 'waha-session-1',
+    userId: 'user-1',
+    sessionName: 'default',
+    status: 'WORKING',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...overrides,
+});
+
+const createMockMediaItem = (overrides: Partial<MediaLibraryItem> = {}): MediaLibraryItem => ({
+    id: 'media-1',
+    userId: 'user-1',
+    filename: 'image.jpg',
+    storagePath: '/uploads/image.jpg',
+    mimeType: 'image/jpeg',
+    createdAt: new Date(),
+    ...overrides,
+});
+
 const createMockCampaign = (overrides: Partial<Campaign & { contactList: ContactList, messageTemplate: MessageTemplate, mediaLibraryItem: MediaLibraryItem | null }> = {}): Campaign & { contactList: ContactList, messageTemplate: MessageTemplate, mediaLibraryItem: MediaLibraryItem | null } => ({
     id: 'campaign-1',
     userId: 'user-1',
@@ -52,37 +88,61 @@ const createMockContact = (overrides: Partial<Contact> = {}): Contact => ({
 describe('CampaignRunnerService', () => {
     let service: CampaignRunnerService;
     const campaignId = 'campaign-1';
+    const mockSessionName = 'default';
+    const mockWahaSessionData = createMockWahaSession({ sessionName: mockSessionName });
 
     beforeEach(() => {
         // Reset mocks before each test
         vi.resetAllMocks();
-        // Create a new service instance with the mock DB
-        // Need to cast because our mock doesn't fully implement PrismaClient
-        service = new CampaignRunnerService(mockDb as unknown as PrismaClient);
-        // Mock console logging to check output
+
+        // Mock WahaApiClient constructor and methods
+        vi.mocked(WahaApiClient).mockImplementation(() => mockWahaApiClient as unknown as WahaApiClient);
+        mockWahaApiClient.sendTextMessage.mockResolvedValue({ messageId: 'msg-1' }); // Default success
+        mockWahaApiClient.sendImageMessage.mockResolvedValue({ messageId: 'msg-2' }); // Default success
+
+        // Mock fs.readFile
+        vi.mocked(fs.readFile).mockImplementation(mockFs.readFile);
+        mockFs.readFile.mockResolvedValue(Buffer.from('mock-image-data')); // Default success
+
+        // Create a new service instance with mock dependencies
+        service = new CampaignRunnerService(
+            mockDb as unknown as PrismaClient,
+            new WahaApiClient() // Instance uses the mocked implementation
+        );
+
+        // Mock console logging
         vi.spyOn(console, 'log').mockImplementation(() => {});
         vi.spyOn(console, 'error').mockImplementation(() => {});
         vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+        // Default mock for wahaSession findUnique
+        mockDb.wahaSession.findUnique.mockResolvedValue(mockWahaSessionData);
+        // Default mock for campaign updates
+        mockDb.campaign.update.mockResolvedValue({});
     });
 
     afterEach(() => {
-        // Restore console mocks
         vi.restoreAllMocks();
     });
 
     // --- Test Cases ---
 
-    it('should successfully run a scheduled campaign and mark it as Completed', async () => {
+    it('should successfully run a scheduled text-only campaign and mark it as Completed', async () => {
         const mockCampaign = createMockCampaign({ status: 'Scheduled' });
         const mockContacts = [
-            createMockContact({ id: 'c1', firstName: 'Alice' }),
-            createMockContact({ id: 'c2', firstName: 'Bob' }),
+            createMockContact({ id: 'c1', firstName: 'Alice', phoneNumber: '111' }),
+            createMockContact({ id: 'c2', firstName: 'Bob', phoneNumber: '222' }),
         ];
         mockDb.campaign.findUnique.mockResolvedValue(mockCampaign);
         mockDb.contact.findMany.mockResolvedValue(mockContacts);
-        mockDb.campaign.update.mockResolvedValue({}); // Mock update calls
 
         await service.runCampaign(campaignId);
+
+        // Check Waha Session fetch
+        expect(mockDb.wahaSession.findUnique).toHaveBeenCalledWith({
+            where: { userId: mockCampaign.userId },
+            select: { sessionName: true }
+        });
 
         // Check initial status update
         expect(mockDb.campaign.update).toHaveBeenCalledWith(expect.objectContaining({
@@ -90,19 +150,21 @@ describe('CampaignRunnerService', () => {
             data: { status: 'Running', startedAt: expect.any(Date) },
         }));
 
-        // Check contact processing logs
-        expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Would send to 1234567890: "Hello Alice!"'));
-        expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Would send to 1234567890: "Hello Bob!"'));
+        // Check WAHA API calls
+        expect(mockWahaApiClient.sendTextMessage).toHaveBeenCalledTimes(2);
+        expect(mockWahaApiClient.sendTextMessage).toHaveBeenCalledWith(mockSessionName, '111@c.us', 'Hello Alice!');
+        expect(mockWahaApiClient.sendTextMessage).toHaveBeenCalledWith(mockSessionName, '222@c.us', 'Hello Bob!');
 
-        // Check index updates
+        // Check sentCount updates
         expect(mockDb.campaign.update).toHaveBeenCalledWith(expect.objectContaining({
             where: { id: campaignId },
-            data: { lastProcessedContactIndex: 0 },
+            data: { sentCount: { increment: 1 } },
         }));
-         expect(mockDb.campaign.update).toHaveBeenCalledWith(expect.objectContaining({
-            where: { id: campaignId },
-            data: { lastProcessedContactIndex: 1 },
-        }));
+        expect(mockDb.campaign.update).toHaveBeenCalledTimes(1 + mockContacts.length * 2); // Running + 2x(sentCount + index) + Completed
+
+        // Check index updates
+        expect(mockDb.campaign.update).toHaveBeenCalledWith(expect.objectContaining({ data: { lastProcessedContactIndex: 0 } }));
+        expect(mockDb.campaign.update).toHaveBeenCalledWith(expect.objectContaining({ data: { lastProcessedContactIndex: 1 } }));
 
         // Check final status update
         expect(mockDb.campaign.update).toHaveBeenCalledWith(expect.objectContaining({
@@ -110,66 +172,89 @@ describe('CampaignRunnerService', () => {
             data: { status: 'Completed', completedAt: expect.any(Date), lastProcessedContactIndex: null },
         }));
         expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Run finished successfully.'));
+        expect(mockDb.campaign.update).not.toHaveBeenCalledWith(expect.objectContaining({ data: { failedCount: { increment: 1 } } }));
+    });
+
+     it('should successfully run a scheduled campaign with an image', async () => {
+        const mockMedia = createMockMediaItem({ storagePath: '/path/to/image.png', mimeType: 'image/png', filename: 'nice-pic.png' });
+        const mockCampaign = createMockCampaign({ status: 'Scheduled', mediaLibraryItemId: mockMedia.id, mediaLibraryItem: mockMedia });
+        const mockContacts = [createMockContact({ id: 'c1', firstName: 'Charlie', phoneNumber: '333' })];
+        const mockImageData = Buffer.from('fake-png-data');
+        const mockImageBase64 = mockImageData.toString('base64');
+
+        mockDb.campaign.findUnique.mockResolvedValue(mockCampaign);
+        mockDb.contact.findMany.mockResolvedValue(mockContacts);
+        mockFs.readFile.mockResolvedValue(mockImageData); // Mock file read
+
+        await service.runCampaign(campaignId);
+
+        // Check file read
+        expect(mockFs.readFile).toHaveBeenCalledWith(mockMedia.storagePath);
+
+        // Check WAHA API call
+        expect(mockWahaApiClient.sendImageMessage).toHaveBeenCalledTimes(1);
+        expect(mockWahaApiClient.sendImageMessage).toHaveBeenCalledWith(
+            mockSessionName,
+            '333@c.us',
+            {
+                filename: mockMedia.filename,
+                base64: mockImageBase64,
+                mimeType: mockMedia.mimeType,
+            },
+            'Hello Charlie!' // Caption
+        );
+        expect(mockWahaApiClient.sendTextMessage).not.toHaveBeenCalled();
+
+        // Check sentCount update
+        expect(mockDb.campaign.update).toHaveBeenCalledWith(expect.objectContaining({
+            data: { sentCount: { increment: 1 } },
+        }));
+        expect(mockDb.campaign.update).not.toHaveBeenCalledWith(expect.objectContaining({ data: { failedCount: { increment: 1 } } }));
+
+         // Check final status update
+        expect(mockDb.campaign.update).toHaveBeenCalledWith(expect.objectContaining({
+            data: { status: 'Completed', completedAt: expect.any(Date), lastProcessedContactIndex: null },
+        }));
     });
 
     it('should use defaultNameValue when firstName is null or empty', async () => {
         const mockCampaign = createMockCampaign({ status: 'Scheduled', defaultNameValue: 'Valued Customer' });
         const mockContacts = [
-            createMockContact({ id: 'c1', firstName: null }),
-            createMockContact({ id: 'c2', firstName: '   ' }), // Whitespace only
+            createMockContact({ id: 'c1', firstName: null, phoneNumber: '111' }),
+            createMockContact({ id: 'c2', firstName: '   ', phoneNumber: '222' }), // Whitespace only
         ];
         mockDb.campaign.findUnique.mockResolvedValue(mockCampaign);
         mockDb.contact.findMany.mockResolvedValue(mockContacts);
-        mockDb.campaign.update.mockResolvedValue({});
 
         await service.runCampaign(campaignId);
 
-        expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Would send to 1234567890: "Hello Valued Customer!"'));
-        expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Would send to 1234567890: "Hello Valued Customer!"')); // Second one too
-    });
-
-     it('should include media path in log when mediaLibraryItemId is set', async () => {
-        const mockMediaItem: MediaLibraryItem = { id: 'media-1', userId: 'user-1', filename: 'image.jpg', storagePath: '/uploads/image.jpg', mimeType: 'image/jpeg', createdAt: new Date() };
-        const mockCampaign = createMockCampaign({
-            status: 'Scheduled',
-            mediaLibraryItemId: 'media-1',
-            mediaLibraryItem: mockMediaItem
-        });
-        const mockContacts = [createMockContact({ id: 'c1', firstName: 'Alice' })];
-        mockDb.campaign.findUnique.mockResolvedValue(mockCampaign);
-        mockDb.contact.findMany.mockResolvedValue(mockContacts);
-        mockDb.campaign.update.mockResolvedValue({});
-
-        await service.runCampaign(campaignId);
-
-        expect(console.log).toHaveBeenCalledWith(expect.stringContaining('with media /uploads/image.jpg'));
+        expect(mockWahaApiClient.sendTextMessage).toHaveBeenCalledWith(mockSessionName, '111@c.us', 'Hello Valued Customer!');
+        expect(mockWahaApiClient.sendTextMessage).toHaveBeenCalledWith(mockSessionName, '222@c.us', 'Hello Valued Customer!');
     });
 
     it('should resume from lastProcessedContactIndex', async () => {
         const mockCampaign = createMockCampaign({ status: 'Scheduled', lastProcessedContactIndex: 1 }); // Start from index 1 (Bob)
         const mockContacts = [
-            createMockContact({ id: 'c1', firstName: 'Alice' }),
-            createMockContact({ id: 'c2', firstName: 'Bob' }),
-            createMockContact({ id: 'c3', firstName: 'Charlie' }),
+            createMockContact({ id: 'c1', firstName: 'Alice', phoneNumber: '111' }),
+            createMockContact({ id: 'c2', firstName: 'Bob', phoneNumber: '222' }),
+            createMockContact({ id: 'c3', firstName: 'Charlie', phoneNumber: '333' }),
         ];
         mockDb.campaign.findUnique.mockResolvedValue(mockCampaign);
         mockDb.contact.findMany.mockResolvedValue(mockContacts);
-        mockDb.campaign.update.mockResolvedValue({});
 
         await service.runCampaign(campaignId);
 
         expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Starting process from index 1.'));
-        expect(console.log).not.toHaveBeenCalledWith(expect.stringContaining('Hello Alice!')); // Should skip Alice
-        expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Hello Bob!'));
-        expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Hello Charlie!'));
+        expect(mockWahaApiClient.sendTextMessage).not.toHaveBeenCalledWith(expect.anything(), '111@c.us', expect.anything()); // Should skip Alice
+        expect(mockWahaApiClient.sendTextMessage).toHaveBeenCalledWith(mockSessionName, '222@c.us', 'Hello Bob!');
+        expect(mockWahaApiClient.sendTextMessage).toHaveBeenCalledWith(mockSessionName, '333@c.us', 'Hello Charlie!');
 
         // Check index updates started from the correct point
         expect(mockDb.campaign.update).toHaveBeenCalledWith(expect.objectContaining({ data: { lastProcessedContactIndex: 1 } }));
         expect(mockDb.campaign.update).toHaveBeenCalledWith(expect.objectContaining({ data: { lastProcessedContactIndex: 2 } }));
 
-        // Check final status update - be specific about the expected data
+        // Check final status update
         expect(mockDb.campaign.update).toHaveBeenCalledWith(expect.objectContaining({
-            where: { id: campaignId },
             data: { status: 'Completed', completedAt: expect.any(Date), lastProcessedContactIndex: null },
         }));
     });
@@ -178,21 +263,17 @@ describe('CampaignRunnerService', () => {
         const mockCampaign = createMockCampaign({ status: 'Scheduled' });
         mockDb.campaign.findUnique.mockResolvedValue(mockCampaign);
         mockDb.contact.findMany.mockResolvedValue([]); // Empty list
-        mockDb.campaign.update.mockResolvedValue({});
 
         await service.runCampaign(campaignId);
 
+        expect(mockDb.wahaSession.findUnique).toHaveBeenCalled(); // Still checks session
         expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('No contacts found in the list. Marking as completed.'));
-        expect(mockDb.campaign.update).toHaveBeenCalledWith(expect.objectContaining({
-             where: { id: campaignId },
-             data: { status: 'Running', startedAt: expect.any(Date) }, // Still marks as running first
-        }));
-        expect(mockDb.campaign.update).toHaveBeenCalledWith(expect.objectContaining({
-            where: { id: campaignId },
-            data: { status: 'Completed', completedAt: expect.any(Date), lastProcessedContactIndex: null },
-        }));
+        expect(mockDb.campaign.update).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'Running', startedAt: expect.any(Date) } }));
+        expect(mockDb.campaign.update).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'Completed', completedAt: expect.any(Date), lastProcessedContactIndex: null } }));
         expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Run finished due to empty contact list.'));
-        expect(mockDb.campaign.update).not.toHaveBeenCalledWith(expect.objectContaining({ data: { lastProcessedContactIndex: expect.any(Number) } })); // No index updates
+        expect(mockWahaApiClient.sendTextMessage).not.toHaveBeenCalled();
+        expect(mockWahaApiClient.sendImageMessage).not.toHaveBeenCalled();
+        expect(mockDb.campaign.update).not.toHaveBeenCalledWith(expect.objectContaining({ data: { lastProcessedContactIndex: expect.any(Number) } }));
     });
 
     it('should return early if campaign status is not Scheduled', async () => {
@@ -202,31 +283,137 @@ describe('CampaignRunnerService', () => {
         await service.runCampaign(campaignId);
 
         expect(console.error).toHaveBeenCalledWith(expect.stringContaining("Campaign is not in 'Scheduled' state (current: Running). Aborting run."));
-        expect(mockDb.campaign.update).not.toHaveBeenCalled(); // Should not update status
-        expect(mockDb.contact.findMany).not.toHaveBeenCalled(); // Should not fetch contacts
+        expect(mockDb.wahaSession.findUnique).not.toHaveBeenCalled(); // Should not check session
+        expect(mockDb.campaign.update).not.toHaveBeenCalled();
+        expect(mockDb.contact.findMany).not.toHaveBeenCalled();
     });
 
-    it('should mark campaign as Failed on internal error during loop', async () => {
+    it('should fail campaign early if no WahaSession is found for the user', async () => {
+        const mockCampaign = createMockCampaign({ status: 'Scheduled' });
+        mockDb.campaign.findUnique.mockResolvedValue(mockCampaign);
+        mockDb.wahaSession.findUnique.mockResolvedValue(null); // No session found
+
+        await service.runCampaign(campaignId);
+
+        expect(console.error).toHaveBeenCalledWith(expect.stringContaining(`No active WAHA session found for user ${mockCampaign.userId}. Marking campaign as Failed.`));
+        expect(mockDb.campaign.update).toHaveBeenCalledTimes(1); // Only the Failed update
+        expect(mockDb.campaign.update).toHaveBeenCalledWith({
+            where: { id: campaignId },
+            data: { status: 'Failed', completedAt: expect.any(Date) },
+        });
+        expect(mockDb.contact.findMany).not.toHaveBeenCalled(); // Should not proceed
+        expect(mockWahaApiClient.sendTextMessage).not.toHaveBeenCalled();
+    });
+
+    it('should increment failedCount and continue if sendTextMessage fails', async () => {
+        const mockCampaign = createMockCampaign({ status: 'Scheduled' });
+        const mockContacts = [
+            createMockContact({ id: 'c1', phoneNumber: '111' }),
+            createMockContact({ id: 'c2', phoneNumber: '222' }),
+        ];
+        const apiError = new Error('WAHA API unavailable');
+        mockDb.campaign.findUnique.mockResolvedValue(mockCampaign);
+        mockDb.contact.findMany.mockResolvedValue(mockContacts);
+        mockWahaApiClient.sendTextMessage
+            .mockRejectedValueOnce(apiError) // First call fails
+            .mockResolvedValue({ messageId: 'msg-ok' }); // Second call succeeds
+
+        await service.runCampaign(campaignId);
+
+        expect(mockWahaApiClient.sendTextMessage).toHaveBeenCalledTimes(2);
+        expect(console.error).toHaveBeenCalledWith(expect.stringContaining(`Failed to send message to 111@c.us:`), apiError);
+        // Check failedCount update for the first contact
+        expect(mockDb.campaign.update).toHaveBeenCalledWith(expect.objectContaining({
+            data: { failedCount: { increment: 1 } },
+        }));
+        // Check sentCount update for the second contact
+        expect(mockDb.campaign.update).toHaveBeenCalledWith(expect.objectContaining({
+            data: { sentCount: { increment: 1 } },
+        }));
+        // Check final status update is still Completed
+        expect(mockDb.campaign.update).toHaveBeenCalledWith(expect.objectContaining({
+            data: { status: 'Completed', completedAt: expect.any(Date), lastProcessedContactIndex: null },
+        }));
+    });
+
+    it('should increment failedCount and continue if readFile fails for an image campaign', async () => {
+        const mockMedia = createMockMediaItem({ storagePath: '/bad/path.jpg' });
+        const mockCampaign = createMockCampaign({ status: 'Scheduled', mediaLibraryItemId: mockMedia.id, mediaLibraryItem: mockMedia });
+        const mockContacts = [createMockContact({ id: 'c1', phoneNumber: '111' })];
+        const readError = new Error('File not found');
+        mockDb.campaign.findUnique.mockResolvedValue(mockCampaign);
+        mockDb.contact.findMany.mockResolvedValue(mockContacts);
+        mockFs.readFile.mockRejectedValue(readError); // Mock file read failure
+
+        await service.runCampaign(campaignId);
+
+        expect(mockFs.readFile).toHaveBeenCalledWith(mockMedia.storagePath);
+        expect(console.error).toHaveBeenCalledWith(expect.stringContaining(`Failed to read media file ${mockMedia.storagePath}:`), readError);
+        expect(mockWahaApiClient.sendImageMessage).not.toHaveBeenCalled(); // API should not be called
+        // Check failedCount update
+        expect(mockDb.campaign.update).toHaveBeenCalledWith(expect.objectContaining({
+            data: { failedCount: { increment: 1 } },
+        }));
+        expect(mockDb.campaign.update).not.toHaveBeenCalledWith(expect.objectContaining({ data: { sentCount: { increment: 1 } } }));
+        // Check final status update is still Completed
+        expect(mockDb.campaign.update).toHaveBeenCalledWith(expect.objectContaining({
+            data: { status: 'Completed', completedAt: expect.any(Date), lastProcessedContactIndex: null },
+        }));
+    });
+
+     it('should increment failedCount and continue if sendImageMessage fails', async () => {
+        const mockMedia = createMockMediaItem();
+        const mockCampaign = createMockCampaign({ status: 'Scheduled', mediaLibraryItemId: mockMedia.id, mediaLibraryItem: mockMedia });
+        const mockContacts = [createMockContact({ id: 'c1', phoneNumber: '111' })];
+        const apiError = new Error('WAHA Image API error');
+        mockDb.campaign.findUnique.mockResolvedValue(mockCampaign);
+        mockDb.contact.findMany.mockResolvedValue(mockContacts);
+        mockFs.readFile.mockResolvedValue(Buffer.from('img')); // File read succeeds
+        mockWahaApiClient.sendImageMessage.mockRejectedValue(apiError); // API call fails
+
+        await service.runCampaign(campaignId);
+
+        expect(mockFs.readFile).toHaveBeenCalled();
+        expect(mockWahaApiClient.sendImageMessage).toHaveBeenCalledTimes(1);
+        expect(console.error).toHaveBeenCalledWith(expect.stringContaining(`Failed to send message to 111@c.us:`), apiError);
+        // Check failedCount update
+        expect(mockDb.campaign.update).toHaveBeenCalledWith(expect.objectContaining({
+            data: { failedCount: { increment: 1 } },
+        }));
+        expect(mockDb.campaign.update).not.toHaveBeenCalledWith(expect.objectContaining({ data: { sentCount: { increment: 1 } } }));
+        // Check final status update is still Completed
+        expect(mockDb.campaign.update).toHaveBeenCalledWith(expect.objectContaining({
+            data: { status: 'Completed', completedAt: expect.any(Date), lastProcessedContactIndex: null },
+        }));
+    });
+
+    // --- Tests for Critical Errors (unchanged logic, but verify mocks don't interfere) ---
+
+    it('should mark campaign as Failed on critical DB error during loop', async () => {
+        // This test ensures the main try/catch still works as expected
         const mockCampaign = createMockCampaign({ status: 'Scheduled' });
         const mockContacts = [createMockContact({ id: 'c1' })];
         const dbError = new Error('Database connection lost');
 
         mockDb.campaign.findUnique.mockResolvedValue(mockCampaign);
         mockDb.contact.findMany.mockResolvedValue(mockContacts);
-        // First update (to Running) succeeds
+        mockWahaApiClient.sendTextMessage.mockResolvedValue({}); // API call succeeds
+        // First update (Running) succeeds
         mockDb.campaign.update.mockResolvedValueOnce({});
-        // Second update (index update) fails
+         // Second update (sentCount) succeeds
+        mockDb.campaign.update.mockResolvedValueOnce({});
+        // Third update (index update) fails critically
         mockDb.campaign.update.mockRejectedValueOnce(dbError);
 
         await service.runCampaign(campaignId);
 
         expect(console.error).toHaveBeenCalledWith(expect.stringContaining('CRITICAL ERROR during run:'), dbError);
-        // Check final status update to Failed
+        // Check final status update to Failed (this is the 4th update call)
         expect(mockDb.campaign.update).toHaveBeenCalledWith(expect.objectContaining({
             where: { id: campaignId },
-            data: { status: 'Failed', completedAt: expect.any(Date) },
+            data: { status: 'Failed', completedAt: expect.any(Date) }, // Keep lastProcessedContactIndex
         }));
-         expect(console.error).toHaveBeenCalledWith(expect.stringContaining('Status updated to Failed.'));
+        expect(console.error).toHaveBeenCalledWith(expect.stringContaining('Status updated to Failed.'));
     });
 
      it('should log error and return if campaign is not found', async () => {
@@ -235,6 +422,7 @@ describe('CampaignRunnerService', () => {
         await service.runCampaign(campaignId);
 
         expect(console.error).toHaveBeenCalledWith(expect.stringContaining('Campaign not found.'));
+        expect(mockDb.wahaSession.findUnique).not.toHaveBeenCalled();
         expect(mockDb.campaign.update).not.toHaveBeenCalled();
         expect(mockDb.contact.findMany).not.toHaveBeenCalled();
     });
@@ -246,7 +434,11 @@ describe('CampaignRunnerService', () => {
 
         mockDb.campaign.findUnique.mockResolvedValue(mockCampaign);
         mockDb.contact.findMany.mockResolvedValue(mockContacts);
+        mockWahaApiClient.sendTextMessage.mockResolvedValue({}); // API call succeeds
+
         // Running update succeeds
+        mockDb.campaign.update.mockResolvedValueOnce({});
+        // sentCount update succeeds
         mockDb.campaign.update.mockResolvedValueOnce({});
         // Index update succeeds
         mockDb.campaign.update.mockResolvedValueOnce({});
@@ -255,9 +447,8 @@ describe('CampaignRunnerService', () => {
 
         await service.runCampaign(campaignId);
 
-        // Should still log the critical error from the catch block
         expect(console.error).toHaveBeenCalledWith(expect.stringContaining('CRITICAL ERROR during run:'), dbError);
-        // Should attempt to mark as Failed
+        // Should attempt to mark as Failed (5th update call)
         expect(mockDb.campaign.update).toHaveBeenCalledWith(expect.objectContaining({
             where: { id: campaignId },
             data: { status: 'Failed', completedAt: expect.any(Date) },
@@ -270,23 +461,23 @@ describe('CampaignRunnerService', () => {
         const initialError = new Error('Error during loop');
         const finalError = new Error('Failed to update status to Failed');
 
-
         mockDb.campaign.findUnique.mockResolvedValue(mockCampaign);
         mockDb.contact.findMany.mockResolvedValue(mockContacts);
+        mockWahaApiClient.sendTextMessage.mockResolvedValue({}); // API call succeeds
+
         // Running update succeeds
+        mockDb.campaign.update.mockResolvedValueOnce({});
+        // sentCount update succeeds
         mockDb.campaign.update.mockResolvedValueOnce({});
         // Index update fails, triggering the catch block
         mockDb.campaign.update.mockRejectedValueOnce(initialError);
         // The subsequent update to 'Failed' also fails
         mockDb.campaign.update.mockRejectedValueOnce(finalError);
 
-
         await service.runCampaign(campaignId);
 
-
         expect(console.error).toHaveBeenCalledWith(expect.stringContaining('CRITICAL ERROR during run:'), initialError);
-        // Check it attempts the Failed update (which is the 3rd update call in this scenario)
-        // The data should include both status and completedAt
+        // Check it attempts the Failed update (4th update call)
         expect(mockDb.campaign.update).toHaveBeenCalledWith(expect.objectContaining({
             where: { id: campaignId },
             data: { status: 'Failed', completedAt: expect.any(Date) },
@@ -294,6 +485,4 @@ describe('CampaignRunnerService', () => {
         // Check it logs the secondary failure
         expect(console.error).toHaveBeenCalledWith(expect.stringContaining('FAILED TO UPDATE STATUS TO FAILED after critical error:'), finalError);
     });
-
-
 });

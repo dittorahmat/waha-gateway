@@ -95,10 +95,14 @@ export const campaignRouter = createTRPCRouter({
       // 3. Lazy import and run the service
       //    Lazy import helps avoid potential circular dependencies if services call each other
       const { CampaignRunnerService } = await import('~/server/services/campaignRunner');
-      const runner = new CampaignRunnerService(ctx.db);
+      const { WahaApiClient } = await import('~/server/services/wahaClient'); // Import WahaApiClient
+
+      // Instantiate dependencies
+      const wahaClient = new WahaApiClient();
+      const runner = new CampaignRunnerService(ctx.db, wahaClient); // Pass wahaClient
 
       // Await the runCampaign call. The API request will wait until the
-      // simulation completes or fails. The service handles status updates internally.
+      // campaign run completes or fails. The service handles status updates internally.
       await runner.runCampaign(input.campaignId);
 
       // Note: Errors within runCampaign are caught there and update the status to Failed.

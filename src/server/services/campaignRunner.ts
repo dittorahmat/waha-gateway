@@ -1,6 +1,8 @@
 import type { Campaign, ContactList, MessageTemplate, MediaLibraryItem, Contact } from '@prisma/client';
 import { PrismaClient } from '@prisma/client';
 import { TRPCError } from '@trpc/server'; // Keep for potential future use
+import { WahaApiClient } from './wahaClient'; // Added import
+import * as fs from 'fs/promises'; // Added import
 
 // Define the type for PrismaClient or TransactionClient
 // This allows the service to work within a transaction if needed
@@ -10,9 +12,12 @@ type PrismaTransactionClient = Omit<PrismaClient, '$connect' | '$disconnect' | '
 export class CampaignRunnerService {
     // Use the specific Prisma client type from your db setup
     private db: PrismaClient | PrismaTransactionClient;
+    private wahaApiClient: WahaApiClient; // Added property
 
-    constructor(db: PrismaClient | PrismaTransactionClient) {
+    // Updated constructor signature and assignment
+    constructor(db: PrismaClient | PrismaTransactionClient, wahaApiClient: WahaApiClient) {
         this.db = db;
+        this.wahaApiClient = wahaApiClient; // Assign injected client
     }
 
     /**
@@ -53,6 +58,24 @@ export class CampaignRunnerService {
                 return;
             }
 
+            // Fetch Waha Session Name associated with the campaign's user
+            console.log(`[Campaign ${campaignId}] Fetching WAHA session for user ${campaign.userId}...`);
+            const wahaSession = await this.db.wahaSession.findUnique({
+                where: { userId: campaign.userId }, // Assuming unique session per user for now
+                select: { sessionName: true }
+            });
+
+            if (!wahaSession?.sessionName) {
+                console.error(`[Campaign ${campaignId}] No active WAHA session found for user ${campaign.userId}. Marking campaign as Failed.`);
+                await this.db.campaign.update({
+                    where: { id: campaignId },
+                    data: { status: 'Failed', completedAt: new Date() },
+                });
+                return; // Stop processing
+            }
+            const sessionName = wahaSession.sessionName;
+            console.log(`[Campaign ${campaignId}] Using WAHA session: ${sessionName}`);
+
             // Update Status to Running
             console.log(`[Campaign ${campaignId}] Updating status to Running.`);
             await this.db.campaign.update({
@@ -87,20 +110,16 @@ export class CampaignRunnerService {
             const startIndex = campaign.lastProcessedContactIndex ?? 0;
             console.log(`[Campaign ${campaignId}] Starting process from index ${startIndex}.`);
 
-            // Get Media Path if a media item is associated
-            const mediaPath = campaign.mediaLibraryItem?.storagePath;
-
             // Loop Through Contacts starting from startIndex
             for (let i = startIndex; i < contacts.length; i++) {
                 const contact = contacts[i]!; // Add non-null assertion - loop condition guarantees existence
                 const contactNumber = i + 1; // 1-based index for logging clarity
 
                 // --- Future Extension Point: Check for external stop/pause signal ---
-                // Example:
+                // (Keep existing commented-out code for future reference)
                 // const currentStatus = await this.db.campaign.findUnique({ where: { id: campaignId }, select: { status: true } });
                 // if (currentStatus?.status === 'Paused' || currentStatus?.status === 'Stopped') {
                 //     console.log(`[Campaign ${campaignId}] Detected status change to ${currentStatus.status}. Pausing run at index ${i}.`);
-                //     // Update index 'i' here before breaking if pausing *before* processing contact 'i'
                 //     await this.db.campaign.update({ where: { id: campaignId }, data: { lastProcessedContactIndex: i } });
                 //     break;
                 // }
@@ -114,14 +133,82 @@ export class CampaignRunnerService {
                 // Use case-insensitive global replacement for {Name} placeholder
                 const personalizedText = campaign.messageTemplate.textContent.replace(/{Name}/gi, nameToUse);
 
-                // Log Action (Simulate Send)
-                console.log(`[Campaign ${campaignId} | Contact ${contactNumber}/${contacts.length}] Would send to ${phoneNumber}: "${personalizedText}" ${mediaPath ? `with media ${mediaPath}` : ''}`);
+                // Format chatId for WAHA
+                const chatId = `${phoneNumber}@c.us`; // Confirmed format
 
-                // --- WAHA API Call would go here in the future ---
+                // --- WAHA API Call Logic ---
+                try {
+                    if (campaign.mediaLibraryItem) {
+                        // --- Send Image ---
+                        const mediaItem = campaign.mediaLibraryItem;
+                        console.log(`[Campaign ${campaignId} | Contact ${contactNumber}/${contacts.length}] Attempting to send image to ${chatId} from ${mediaItem.storagePath}`);
+
+                        // Read image file
+                        let imageBase64: string;
+                        try {
+                            // Assuming storagePath is a local, readable path
+                            const fileBuffer = await fs.readFile(mediaItem.storagePath);
+                            imageBase64 = fileBuffer.toString('base64');
+                        } catch (readError) {
+                             console.error(`[Campaign ${campaignId} | Contact ${contactNumber}] Failed to read media file ${mediaItem.storagePath}:`, readError);
+                             // Increment failed count for this contact due to file read error
+                             await this.db.campaign.update({
+                                 where: { id: campaignId },
+                                 data: { failedCount: { increment: 1 } },
+                             });
+                             // Continue to the next contact
+                             continue; // Skip API call if file read fails
+                        }
+
+
+                        // Call WAHA API for image
+                        await this.wahaApiClient.sendImageMessage(
+                            sessionName,
+                            chatId,
+                            {
+                                filename: mediaItem.filename,
+                                base64: imageBase64,
+                                mimeType: mediaItem.mimeType,
+                            },
+                            personalizedText // Use personalized text as caption
+                        );
+                        console.log(`[Campaign ${campaignId} | Contact ${contactNumber}] Image send API call successful for ${chatId}.`);
+                        // Increment sent count on success
+                        await this.db.campaign.update({
+                            where: { id: campaignId },
+                            data: { sentCount: { increment: 1 } },
+                        });
+
+                    } else {
+                        // --- Send Text Only ---
+                        console.log(`[Campaign ${campaignId} | Contact ${contactNumber}/${contacts.length}] Attempting to send text to ${chatId}`);
+                        await this.wahaApiClient.sendTextMessage(
+                            sessionName,
+                            chatId,
+                            personalizedText
+                        );
+                         console.log(`[Campaign ${campaignId} | Contact ${contactNumber}] Text send API call successful for ${chatId}.`);
+                        // Increment sent count on success
+                        await this.db.campaign.update({
+                            where: { id: campaignId },
+                            data: { sentCount: { increment: 1 } },
+                        });
+                    }
+                } catch (error) {
+                    // --- Handle API Call Failure ---
+                    console.error(`[Campaign ${campaignId} | Contact ${contactNumber}] Failed to send message to ${chatId}:`, error);
+                    // Increment failed count on error
+                    await this.db.campaign.update({
+                        where: { id: campaignId },
+                        data: { failedCount: { increment: 1 } },
+                    });
+                    // Do NOT re-throw; continue to the next contact
+                }
 
                 // Update lastProcessedContactIndex in DB (After each contact for resilience)
                 // Note: This causes a DB write for every contact. For very large lists,
                 // batching this update (e.g., every 50 contacts) might be more performant.
+                // Ensure this happens *after* the try/catch block for the API call
                 await this.db.campaign.update({
                     where: { id: campaignId },
                     data: { lastProcessedContactIndex: i },
