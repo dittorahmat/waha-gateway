@@ -3,6 +3,11 @@ import { PrismaClient } from '@prisma/client';
 import { TRPCError } from '@trpc/server'; // Keep for potential future use
 import { WahaApiClient } from './wahaClient'; // Added import
 import * as fs from 'fs/promises'; // Added import
+import { env } from '~/env'; // Import env
+
+// Utility functions for delay
+const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
+const randomInt = (min: number, max: number): number => Math.floor(Math.random() * (max - min + 1)) + min;
 
 // Define the type for PrismaClient or TransactionClient
 // This allows the service to work within a transaction if needed
@@ -214,8 +219,20 @@ export class CampaignRunnerService {
                     data: { lastProcessedContactIndex: i },
                 });
 
-                // --- Future Extension Point: Add delay between messages ---
-                // Example: await new Promise(resolve => setTimeout(resolve, 1000)); // 1 second delay
+                // --- Add configurable randomized delay between messages ---
+                const minDelay = env.CAMPAIGN_MIN_DELAY_MS;
+                const maxDelay = env.CAMPAIGN_MAX_DELAY_MS;
+
+                // Ensure min <= max before calculating delay
+                if (minDelay <= maxDelay) {
+                    const delay = randomInt(minDelay, maxDelay);
+                    console.log(`[Campaign ${campaignId} | Contact ${contactNumber}/${contacts.length}] Applying delay of ${delay}ms (Range: ${minDelay}-${maxDelay}ms) before next action.`);
+                    await sleep(delay);
+                } else {
+                     // Log a warning if min > max, but still proceed (maybe with minDelay?)
+                     console.warn(`[Campaign ${campaignId}] Delay configuration error: CAMPAIGN_MIN_DELAY_MS (${minDelay}) is greater than CAMPAIGN_MAX_DELAY_MS (${maxDelay}). Using minimum delay.`);
+                     await sleep(minDelay); // Apply minimum delay as a fallback
+                }
                 // ---
             }
 

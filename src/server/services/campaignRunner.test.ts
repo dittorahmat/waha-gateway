@@ -160,7 +160,8 @@ describe('CampaignRunnerService', () => {
             where: { id: campaignId },
             data: { sentCount: { increment: 1 } },
         }));
-        expect(mockDb.campaign.update).toHaveBeenCalledTimes(1 + mockContacts.length * 2); // Running + 2x(sentCount + index) + Completed
+        // Expected calls: 1 (Running) + N (sentCount) + N (index) + 1 (Completed) = 2 + 2*N
+        expect(mockDb.campaign.update).toHaveBeenCalledTimes(2 + mockContacts.length * 2);
 
         // Check index updates
         expect(mockDb.campaign.update).toHaveBeenCalledWith(expect.objectContaining({ data: { lastProcessedContactIndex: 0 } }));

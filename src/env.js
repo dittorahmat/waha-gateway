@@ -15,7 +15,9 @@ export const env = createEnv({
     // AUTH_DISCORD_SECRET: z.string(), // Removed Discord Secret validation
     DATABASE_URL: z.string().url(),
     WAHA_BASE_URL: z.string().url(), // Added WAHA Base URL
-    WAHA_API_KEY: z.string(), // Added WAHA API Key
+    WAHA_API_KEY: z.string().min(1), // Added WAHA API Key, ensure non-empty
+    CAMPAIGN_MIN_DELAY_MS: z.coerce.number().int().min(0).default(6000), // Default 6s
+    CAMPAIGN_MAX_DELAY_MS: z.coerce.number().int().min(0).default(12000), // Default 12s
     NODE_ENV: z
       .enum(["development", "test", "production"])
       .default("development"),
@@ -41,6 +43,8 @@ export const env = createEnv({
     DATABASE_URL: process.env.DATABASE_URL,
     WAHA_BASE_URL: process.env.WAHA_BASE_URL, // Added WAHA Base URL
     WAHA_API_KEY: process.env.WAHA_API_KEY, // Added WAHA API Key
+    CAMPAIGN_MIN_DELAY_MS: process.env.CAMPAIGN_MIN_DELAY_MS,
+    CAMPAIGN_MAX_DELAY_MS: process.env.CAMPAIGN_MAX_DELAY_MS,
     NODE_ENV: process.env.NODE_ENV,
   },
   /**
