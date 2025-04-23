@@ -2,7 +2,8 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
-import { schedulerService } from "~/server/db"; // Import the scheduler service singleton
+import { db, schedulerService, wahaApiClient } from "~/server/db"; // Import db, scheduler, and waha client
+import { CampaignRunnerService } from "~/server/services/campaignRunner"; // Import Campaign Runner Service
 
 // Zod schema for the create campaign input validation
 const createCampaignInput = z.object({
@@ -106,8 +107,68 @@ export const campaignRouter = createTRPCRouter({
       return { success: true, message: "Campaign deleted successfully." };
     }),
 
+  // Procedure to resume a paused campaign
+  resume: protectedProcedure
+    .input(z.object({ campaignId: z.string().cuid({ message: "Invalid Campaign ID" }) }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
+      const { campaignId } = input;
 
-  // TODO: Add list, get, update procedures if needed later
-  //       Ensure update procedure also calls schedulerService.cancelCampaignJob(campaignId)
+      // 1. Fetch campaign, verify ownership and status
+      const campaign = await ctx.db.campaign.findUnique({
+        where: { id: campaignId, userId: userId },
+      });
+
+      if (!campaign) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Campaign not found or access denied.' });
+      }
+
+      if (campaign.status !== 'Paused') {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: `Campaign cannot be resumed from status '${campaign.status}'. It must be 'Paused'.` });
+      }
+
+      // 2. Update status back to 'Scheduled' (runner service will immediately pick it up and change to 'Running')
+      //    We set it to 'Scheduled' first to signify intent and allow the runner's logic to handle the 'Running' transition.
+      await ctx.db.campaign.update({
+        where: { id: campaignId },
+        data: { status: 'Scheduled' },
+      });
+      console.log(`[CampaignRouter] Resuming campaign ${campaignId}. Status set to Scheduled.`);
+
+      // 3. Instantiate runner service and trigger immediate run
+      //    We use the singleton db and wahaApiClient instances.
+      try {
+        const campaignRunnerService = new CampaignRunnerService(db, wahaApiClient);
+        // Run asynchronously - no need to wait for the entire campaign to finish here.
+        void campaignRunnerService.runCampaign(campaignId);
+        console.log(`[CampaignRouter] Triggered immediate run for campaign ${campaignId}.`);
+      } catch (runError) {
+          // Log the error but don't necessarily fail the mutation,
+          // as the status update already happened. The runner itself handles failures.
+          console.error(`[CampaignRouter] Error triggering immediate run for campaign ${campaignId}:`, runError);
+          // Optionally, could try reverting status back to Paused here, but might be complex.
+      }
+
+      return { success: true, message: "Campaign resume initiated." };
+    }),
+
+  // Procedure to list campaigns for the current user
+  list: protectedProcedure
+    .query(async ({ ctx }) => {
+      const userId = ctx.session.user.id;
+
+      const campaigns = await ctx.db.campaign.findMany({
+        where: { userId: userId },
+        orderBy: { createdAt: 'desc' }, // Order by creation date, newest first
+        // Optionally include related data if needed by the table
+        // include: { contactList: { select: { name: true } }, messageTemplate: { select: { name: true } } }
+      });
+
+      return campaigns;
+    }),
+
+
+  // TODO: Add get procedure if needed later
+  // TODO: Ensure update procedure also calls schedulerService.cancelCampaignJob(campaignId)
   //       if the status changes from 'Scheduled' or scheduledAt is modified.
 });

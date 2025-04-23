@@ -56,10 +56,9 @@ export class CampaignRunnerService {
                 return;
             }
 
-            // Check Status - Only run 'Scheduled' campaigns for now
-            // TODO: Add 'Paused' state later for resume functionality
-            if (campaign.status !== 'Scheduled') {
-                console.error(`[Campaign ${campaignId}] Campaign is not in 'Scheduled' state (current: ${campaign.status}). Aborting run.`);
+            // Check Status - Allow 'Scheduled' or 'Paused' campaigns to run
+            if (campaign.status !== 'Scheduled' && campaign.status !== 'Paused') {
+                console.error(`[Campaign ${campaignId}] Campaign is not in 'Scheduled' or 'Paused' state (current: ${campaign.status}). Aborting run.`);
                 return;
             }
 
