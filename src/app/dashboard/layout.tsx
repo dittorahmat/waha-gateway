@@ -3,6 +3,8 @@ import Link from "next/link";
 import { auth, signOut } from "~/server/auth"; // Import signOut
 import { redirect } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { Toaster } from "@/components/ui/sonner"; // Import Toaster
+import { BlockingWarningBanner } from "@/components/ui/blocking-warning-banner"; // Import the banner
 
 // Simple Nav Component (can be extracted later if needed)
 function DashboardNav() {
@@ -80,7 +82,10 @@ export default async function DashboardLayout({
         </div>
       </nav>
 
+      <BlockingWarningBanner /> {/* Add the banner here */}
+
       {children}
+      <Toaster /> {/* Add Toaster component here */}
     </section>
   );
 }

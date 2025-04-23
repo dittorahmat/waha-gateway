@@ -34,7 +34,7 @@
    const recentCampaignsQuery = api.campaign.list.useQuery({ page: 1, pageSize: 5 });
 
    return (
-     <div className="container mx-auto py-10 space-y-8">
+     <div className="container mx-auto py-10 px-4 sm:px-6 lg:px-8 space-y-8"> {/* Added horizontal padding */}
        <div className="flex justify-between items-center">
          <h1 className="text-3xl font-bold">Dashboard</h1>
          {/* Add Create Campaign Button */}
@@ -52,9 +52,9 @@
              <CardTitle>Recent Campaigns</CardTitle>
              <CardDescription>Your 5 most recently created campaigns.</CardDescription>
            </CardHeader>
-           <CardContent>
-             {recentCampaignsQuery.isLoading && <p>Loading recent campaigns...</p>}
-             {recentCampaignsQuery.error && <p className="text-red-600">Error: {recentCampaignsQuery.error.message}</p>}
+           <CardContent> {/* Assuming default padding is sufficient, otherwise add p-6 */}
+             {recentCampaignsQuery.isLoading && <p className="text-center text-muted-foreground py-4">Loading recent campaigns...</p>}
+             {recentCampaignsQuery.error && <p className="text-center text-red-600 py-4">Error: {recentCampaignsQuery.error.message}</p>}
              {recentCampaignsQuery.data && recentCampaignsQuery.data.campaigns.length > 0 && (
                <Table>
                  <TableHeader>
@@ -67,7 +67,7 @@
                  </TableHeader>
                  <TableBody>
                    {recentCampaignsQuery.data.campaigns.map((campaign: CampaignListItem) => (
-                     <TableRow key={campaign.id}>
+                     <TableRow key={campaign.id} className="hover:bg-muted/50"> {/* Added hover effect */}
                        <TableCell className="font-medium">{campaign.name}</TableCell>
                        <TableCell>
                          <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusColor(campaign.status)}`}>

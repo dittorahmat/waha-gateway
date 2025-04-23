@@ -1,6 +1,6 @@
 "use client"; // Required for hooks like useState, useEffect, and tRPC hooks
 
-import React, { useState, useMemo } from "react"; // Import useState and useMemo
+import React, { useState, useMemo, useEffect, useRef } from "react"; // Import useEffect, useRef
 import Link from "next/link";
 import { type ColumnDef, type PaginationState } from "@tanstack/react-table"; // Import PaginationState
 import { MoreHorizontal, ArrowUpDown } from "lucide-react";
@@ -215,6 +215,44 @@ export default function CampaignsPage() {
     [resumeMutation, deleteMutation, utils] // Dependencies for memoization
   );
 
+  // --- Effect for Status Change Toasts ---
+  const previousCampaignsRef = useRef<CampaignListItem[] | undefined>(undefined); // Provide initial value
+
+  useEffect(() => {
+    const currentCampaigns = campaignsQuery.data?.campaigns;
+    const previousCampaigns = previousCampaignsRef.current;
+
+    if (currentCampaigns && previousCampaigns) {
+      const previousCampaignsMap = new Map(previousCampaigns.map(c => [c.id, c.status]));
+
+      currentCampaigns.forEach(currentCampaign => {
+        const previousStatus = previousCampaignsMap.get(currentCampaign.id);
+        const currentStatus = currentCampaign.status;
+
+        // Check if status changed *to* Completed or Failed from something else
+        if (previousStatus && previousStatus !== currentStatus) {
+          if (currentStatus === 'Completed' && previousStatus !== 'Completed') {
+            toast.success(`Campaign "${currentCampaign.name}" completed.`);
+          } else if (currentStatus === 'Failed' && previousStatus !== 'Failed') {
+            toast.error(`Campaign "${currentCampaign.name}" failed.`);
+          }
+          // Add other status change notifications if needed (e.g., Paused)
+          // else if (currentStatus === 'Paused' && previousStatus !== 'Paused') {
+          //   toast.warning(`Campaign "${currentCampaign.name}" was paused.`);
+          // }
+        }
+      });
+    }
+
+    // Update previous data ref, ensuring not to store undefined during loading states
+    if (currentCampaigns) {
+        previousCampaignsRef.current = currentCampaigns;
+    }
+
+  }, [campaignsQuery.data?.campaigns]); // Dependency array includes the campaign data
+  // --- End Effect ---
+
+
   // Handle loading and error states
   const isLoading = campaignsQuery.isLoading;
   const isError = campaignsQuery.isError;
@@ -222,7 +260,7 @@ export default function CampaignsPage() {
   const campaignData = campaignsQuery.data?.campaigns ?? []; // Default to empty array
 
   return (
-    <div className="container mx-auto py-10">
+    <div className="container mx-auto py-10 px-4 sm:px-6 lg:px-8"> {/* Added horizontal padding */}
       <Card>
         <CardHeader>
           <div className="flex justify-between items-center">
@@ -236,9 +274,9 @@ export default function CampaignsPage() {
           </div>
         </CardHeader>
         <CardContent>
-          {isLoading && <p>Loading campaigns...</p>} {/* Simplified loading check */}
-          {isError && <p className="text-red-600">Error loading campaigns: {error?.message}</p>}
-          {!isLoading && !isError && (
+          {isLoading && <p className="text-center text-muted-foreground py-4">Loading campaigns...</p>} {/* Improved loading style */}
+          {isError && <p className="text-center text-red-600 py-4">Error loading campaigns: {error?.message}</p>} {/* Improved error style */}
+          {!isLoading && !isError && campaignData.length > 0 && ( // Check campaignData length here
             <DataTable
               columns={columns}
               data={campaignData} // campaignData is now correctly typed as CampaignListItem[]
@@ -251,7 +289,7 @@ export default function CampaignsPage() {
               // filterPlaceholder="Filter by name..."
             />
           )}
-           {/* Show 'No results' only if not loading and data array is empty */}
+           {/* Show 'No results' only if not loading/error and data array is empty */}
            {!isLoading && !isError && campaignData.length === 0 && (
              <p className="text-muted-foreground text-center py-4">No campaigns found. Create one to get started!</p>
            )}

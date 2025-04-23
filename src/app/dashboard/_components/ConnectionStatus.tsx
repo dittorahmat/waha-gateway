@@ -1,6 +1,6 @@
 "use client"; // Required for hooks
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react"; // Added useEffect, useRef
 import Image from "next/image"; // Use Next.js Image for potential optimization
 import { api } from "~/trpc/react";
 import { Button } from "~/components/ui/button";
@@ -18,6 +18,7 @@ import { toast } from "sonner"; // Using sonner for notifications
 
 export function ConnectionStatus() {
   const [phoneNumber, setPhoneNumber] = useState("");
+  const previousStatusRef = useRef<string | null>(null); // Ref to store previous status
 
   // Query to get the current session state, polling every 5 seconds
   const sessionStateQuery = api.waha.getSessionState.useQuery(undefined, {
@@ -70,6 +71,29 @@ export function ConnectionStatus() {
       },
     });
   // --- End Mutations ---
+
+  // --- Effect for Connection Success Toast ---
+  useEffect(() => {
+    const currentStatus = sessionStateQuery.data?.status;
+    const previousStatus = previousStatusRef.current;
+
+    // Check if status changed to 'WORKING' from a different state
+    if (
+      currentStatus === "WORKING" &&
+      previousStatus !== "WORKING" &&
+      previousStatus !== null // Avoid toast on initial load if starting as WORKING
+    ) {
+      toast.success("WhatsApp connected successfully!");
+    }
+
+    // Update previous status ref for the next render
+    if (currentStatus !== previousStatus) {
+       previousStatusRef.current = currentStatus ?? null;
+    }
+    // Only run when query data changes
+  }, [sessionStateQuery.data?.status]);
+  // --- End Effect ---
+
 
   // --- Render Logic ---
   const renderContent = () => {

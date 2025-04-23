@@ -1,10 +1,11 @@
 import React from 'react';
-import { CampaignForm } from './_components/campaign-form'; // We will create this component next
+import CampaignForm from './_components/campaign-form'; // Correct: Use default import
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb"; // Assuming breadcrumbs are used
 
 export default function CreateCampaignPage() {
   return (
-    <div className="space-y-6">
+    // Add container, padding, and max-width for better layout consistency
+    <div className="container mx-auto max-w-3xl py-10 px-4 sm:px-6 lg:px-8 space-y-6">
        <Breadcrumb>
          <BreadcrumbList>
            <BreadcrumbItem>

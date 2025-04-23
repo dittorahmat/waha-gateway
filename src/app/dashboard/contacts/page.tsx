@@ -17,7 +17,7 @@ import {
   FormMessage,
 } from "~/components/ui/form";
 import { Input } from "~/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "~/components/ui/card"; // Added CardDescription
 import { DataTable } from "~/components/data-table"; // Import DataTable
 import {
   DropdownMenu,
@@ -223,12 +223,13 @@ export default function ContactListPage() {
 
 
   return (
-    <div className="container mx-auto py-10">
+    <div className="container mx-auto py-10 px-4 sm:px-6 lg:px-8"> {/* Added horizontal padding */}
       <h1 className="mb-6 text-3xl font-bold">Contact Lists</h1>
 
       <Card className="mb-8">
         <CardHeader>
           <CardTitle>Upload New List</CardTitle>
+          <CardDescription>Upload a CSV file containing phone numbers and optional names.</CardDescription> {/* Added description */}
         </CardHeader>
         <CardContent>
           <Form {...form}>
@@ -279,17 +280,34 @@ export default function ContactListPage() {
 
       {/* Contact List Table will go here */}
       <h2 className="mb-4 text-2xl font-semibold">Existing Lists</h2>
-      {isLoadingLists ? (
-        <p>Loading lists...</p>
-      ) : (
-        <DataTable
-           columns={columns}
-           data={contactLists ?? []}
-           // isLoading prop removed as it's not supported by the component
-           filterColumnId="name" // Correct prop name for filtering
-           filterPlaceholder="Filter by name..."
-        />
-      )}
+      {(() => { // Use IIFE for cleaner conditional rendering
+        if (isLoadingLists) {
+          return <p className="text-center text-muted-foreground py-4">Loading lists...</p>;
+        }
+        // Assuming query returns null/undefined on error, or check isError flag if available
+        if (!contactLists) {
+           // Add an explicit error check if the query provides one
+           // if (contactListsQuery.isError) {
+           //    return <p className="text-center text-red-600 py-4">Error loading contact lists: {contactListsQuery.error.message}</p>;
+           // }
+          return <p className="text-center text-red-600 py-4">Error loading contact lists.</p>;
+        }
+        if (contactLists.length === 0) {
+          return <p className="text-muted-foreground text-center py-4">No contact lists found. Upload one to get started!</p>;
+        }
+        // Only render DataTable if loading is false, no error, and data exists
+        return (
+          <DataTable
+            columns={columns}
+            data={contactLists}
+            pageCount={1} // Provide dummy pageCount
+            pagination={{ pageIndex: 0, pageSize: contactLists.length }} // Provide dummy pagination state
+            onPaginationChange={() => {}} // Provide dummy handler
+            filterColumnId="name"
+            filterPlaceholder="Filter by name..."
+          />
+        );
+      })()}
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>

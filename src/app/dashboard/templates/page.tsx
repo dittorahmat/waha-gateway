@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useMemo } from "react"; // Import useState and useMemo
+import { toast } from "sonner"; // Import toast
 import { api } from "~/trpc/react";
 import type { ColumnDef } from "@tanstack/react-table";
 import type { MessageTemplate } from "@prisma/client";
@@ -52,39 +53,39 @@ export default function TemplatesPage() {
   } = api.template.list.useQuery();
 
   const createTemplateMutation = api.template.create.useMutation({
-    onSuccess: async () => {
+    onSuccess: async (data) => { // Add 'data' parameter
+      toast.success(`Template "${data.name}" created successfully!`);
       await utils.template.list.invalidate(); // Invalidate list query on success
       setIsCreateDialogOpen(false); // Close dialog
-      // TODO: Add success toast/notification
     },
     onError: (error) => {
-      // TODO: Add error toast/notification
+      // Error handled globally by queryClient config
       console.error("Failed to create template:", error);
     },
   });
 
   const updateTemplateMutation = api.template.update.useMutation({
-    onSuccess: async () => {
+    onSuccess: async (data) => { // Add 'data' parameter
+      toast.success(`Template "${data.name}" updated successfully!`);
       await utils.template.list.invalidate(); // Invalidate list query
       setIsEditDialogOpen(false); // Close dialog
       setEditingTemplate(null); // Clear editing state
-      // TODO: Add success toast/notification
     },
     onError: (error) => {
-      // TODO: Add error toast/notification
+      // Error handled globally by queryClient config
       console.error("Failed to update template:", error);
     },
   });
 
   const deleteTemplateMutation = api.template.delete.useMutation({
-    onSuccess: async () => {
+    onSuccess: async () => { // Keep existing signature
+      toast.success(`Template deleted successfully!`);
       await utils.template.list.invalidate(); // Invalidate list query
       setIsDeleteDialogOpen(false); // Close dialog
       setDeletingTemplateId(null); // Clear deleting state
-      // TODO: Add success toast/notification
     },
     onError: (error) => {
-      // TODO: Add error toast/notification
+      // Error handled globally by queryClient config
       console.error("Failed to delete template:", error);
       // Keep dialog open on error? Or close and show toast?
       // setIsDeleteDialogOpen(false);
@@ -160,20 +161,20 @@ export default function TemplatesPage() {
   // --- End Columns Definition ---
 
 
+  // Handle loading and error states before rendering the main layout
   if (isLoading) {
-    return <div className="container mx-auto py-10">Loading templates...</div>;
+    // Consistent loading message style
+    return <div className="container mx-auto py-10 px-4 sm:px-6 lg:px-8 text-center text-muted-foreground">Loading templates...</div>;
   }
 
   if (error) {
-    return (
-      <div className="container mx-auto py-10 text-red-600">
-        Error loading templates: {error.message}
-      </div>
-    );
+     // Consistent error message style
+    return <div className="container mx-auto py-10 px-4 sm:px-6 lg:px-8 text-center text-red-600">Error loading templates: {error.message}</div>;
   }
 
+  // Main page content
   return (
-    <div className="container mx-auto py-10">
+    <div className="container mx-auto py-10 px-4 sm:px-6 lg:px-8"> {/* Added horizontal padding */}
       <div className="flex justify-between items-center mb-4">
         <h1 className="text-2xl font-bold">Message Templates</h1>
         <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
@@ -247,12 +248,20 @@ export default function TemplatesPage() {
         </AlertDialog>
 
       </div>
-      <DataTable
-        columns={columns}
-        data={templates ?? []}
-        filterColumnId="name" // Allow filtering by name
-        filterPlaceholder="Filter by name..."
-      />
+      {templates && templates.length > 0 ? (
+        <DataTable
+          columns={columns}
+          data={templates} // Use templates directly since we checked length
+          pageCount={1} // Provide dummy pageCount for non-paginated table
+          pagination={{ pageIndex: 0, pageSize: templates.length }} // Provide dummy pagination state
+          onPaginationChange={() => {}} // Provide dummy handler
+          filterColumnId="name"
+          filterPlaceholder="Filter by name..."
+        />
+      ) : (
+        // Consistent "No results" message
+        <p className="text-muted-foreground text-center py-4">No templates found. Create one to get started!</p>
+      )}
     </div>
   );
 }
