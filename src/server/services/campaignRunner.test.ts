@@ -295,7 +295,8 @@ describe('CampaignRunnerService', () => {
 
         await service.runCampaign(campaignId);
 
-        expect(console.error).toHaveBeenCalledWith(expect.stringContaining("Campaign is not in 'Scheduled' state (current: Running). Aborting run."));
+        // Update the expected error string to match the actual output
+        expect(console.error).toHaveBeenCalledWith(expect.stringContaining(`[Campaign ${campaignId}] Campaign is not in 'Scheduled' or 'Paused' state (current: Running). Aborting run.`));
         expect(mockDb.wahaSession.findFirst).not.toHaveBeenCalled(); // Should not check session (using findFirst)
         expect(mockDb.campaign.update).not.toHaveBeenCalled();
         expect(mockDb.contact.findMany).not.toHaveBeenCalled();

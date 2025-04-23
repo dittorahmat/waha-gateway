@@ -52,6 +52,7 @@ const formSchema = z.object({
 type CampaignFormValues = z.infer<typeof formSchema>;
 
 export function CampaignForm() {
+  console.log('[DEBUG] CampaignForm rendered');
   const router = useRouter();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   // UI State managed separately from form values
@@ -61,6 +62,9 @@ export function CampaignForm() {
   // Fetch data for Selects
   const contactListsQuery = api.contactList.list.useQuery();
   const templatesQuery = api.template.list.useQuery();
+  console.log('[DEBUG] contactListsQuery.data:', contactListsQuery.data);
+  console.log('[DEBUG] templatesQuery.data:', templatesQuery.data);
+  // Media library query will be fetched conditionally later if needed
   // Media library query will be fetched conditionally later if needed
 
   // tRPC Mutations

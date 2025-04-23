@@ -10,6 +10,7 @@ export default defineConfig({
   test: {
     globals: true, // Optional: Use if you want global test APIs like describe, it, expect
     environment: "jsdom", // Set environment to jsdom for React component tests
+    setupFiles: ["src/test/setup.ts"], // <-- Add this line to point to the setup file
   },
   // resolve: { // Remove manual alias section
   //   alias: {

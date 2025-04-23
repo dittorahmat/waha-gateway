@@ -25,3 +25,19 @@ global.ResizeObserver = class ResizeObserver {
         // do nothing
     }
 };
+// Polyfill for Element.prototype.hasPointerCapture
+if (typeof Element.prototype.hasPointerCapture === 'undefined') {
+  Element.prototype.hasPointerCapture = function(pointerId) {
+    // Simple polyfill: In jsdom, we assume the element doesn't have pointer capture.
+    // You might need a more sophisticated mock depending on Radix UI's exact usage,
+    // but this often suffices to prevent the TypeError.
+    return false;
+  };
+}
+
+// Polyfill for Element.prototype.releasePointerCapture if needed later
+// if (typeof Element.prototype.releasePointerCapture === 'undefined') {
+//   Element.prototype.releasePointerCapture = function(pointerId) {
+//     // No-op
+//   };
+// }
