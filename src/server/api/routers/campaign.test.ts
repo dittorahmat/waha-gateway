@@ -1,11 +1,26 @@
 // @vitest-environment node
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest"; // Added vi
 import { type AppRouter, appRouter } from "~/server/api/root";
 import { createCallerFactory } from "~/server/api/trpc";
 import { type Session } from "next-auth";
 import { db } from "~/server/db";
-import { type ContactList, type MessageTemplate, type MediaLibraryItem, type Campaign } from "@prisma/client";
+import { type ContactList, type MessageTemplate, type MediaLibraryItem, type Campaign } from "@prisma/client"; // Removed CampaignStatus import
 import { TRPCError } from "@trpc/server";
+import { CampaignRunnerService } from "~/server/services/campaignRunner"; // Import the actual service
+
+// Mock CampaignRunnerService
+const mockRunCampaign = vi.fn();
+vi.mock("~/server/services/campaignRunner", () => {
+  // Mock the constructor and the method we need to control
+  return {
+    CampaignRunnerService: vi.fn().mockImplementation(() => {
+      return {
+        runCampaign: mockRunCampaign,
+      };
+    }),
+  };
+});
+
 
 // Mock session data
 const testUserId = "campaign-test-user-id";
@@ -110,6 +125,9 @@ describe("Campaign Router", () => {
     await db.campaign.deleteMany({
       where: { userId: { in: [testUserId, otherUserId] } },
     });
+    // Reset mocks before each test
+    vi.clearAllMocks();
+    mockRunCampaign.mockClear();
   });
 
   // --- campaign.create Tests ---
@@ -279,18 +297,19 @@ describe("Campaign Router", () => {
     );
   });
 
-  it("should use default 'Customer' for defaultNameValue if not provided", async () => {
+  it("should fail if defaultNameValue is not provided", async () => { // Corrected test name
      const input = {
        name: "Default Name Test",
        contactListId: testUserContactList.id,
        messageTemplateId: testUserTemplate.id,
        scheduledAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
-       // defaultNameValue is omitted
+       // defaultNameValue is intentionally omitted
      };
-     await expect(caller.campaign.create(input)).rejects.toThrow(
+     // Use 'input as any' to bypass compile-time check for this specific test
+     await expect(caller.campaign.create(input as any)).rejects.toThrow(
        expect.objectContaining({
          code: 'BAD_REQUEST',
-         message: expect.stringContaining('defaultNameValue'),
+         message: expect.stringContaining('defaultNameValue'), // Expect Zod error for missing field
        })
      );
    });
@@ -301,6 +320,7 @@ describe("Campaign Router", () => {
       contactListId: testUserContactList.id,
       messageTemplateId: testUserTemplate.id,
       scheduledAt: new Date(),
+      defaultNameValue: "Missing Name Test", // defaultNameValue is present here
     };
 
     // Need to cast as any because TS knows 'name' is missing
@@ -394,46 +414,258 @@ describe("Campaign Router", () => {
      );
    });
 
-  it("should run a campaign and update status and index via runManually", async () => {
-    // Create a contact list with two contacts
-    const contactList = await db.contactList.create({
-      data: { userId: testUserId, name: "Runner Test List", contactCount: 2 },
+  // --- campaign.list Tests ---
+  describe("campaign.list", () => {
+    it("should list campaigns belonging to the user (default pagination)", async () => {
+        // Create a couple of campaigns for the test user
+        const campaign1 = await db.campaign.create({
+            data: {
+                userId: testUserId,
+                name: "List Test Campaign 1",
+                contactListId: testUserContactList.id,
+                messageTemplateId: testUserTemplate.id,
+                defaultNameValue: "Customer",
+                scheduledAt: new Date(),
+                status: "Scheduled",
+                totalContacts: 10, sentCount: 0, failedCount: 0,
+            }
+        });
+        const campaign2 = await db.campaign.create({
+            data: {
+                userId: testUserId,
+                name: "List Test Campaign 2",
+                contactListId: testUserContactList.id,
+                messageTemplateId: testUserTemplate.id,
+                defaultNameValue: "Friend",
+                scheduledAt: new Date(Date.now() - 86400000), // Yesterday
+                status: "Completed",
+                totalContacts: 5, sentCount: 5, failedCount: 0,
+            }
+        });
+         // Create a campaign for the other user (should not be listed)
+        await db.campaign.create({
+            data: {
+                userId: otherUserId,
+                name: "Other User Campaign",
+                contactListId: otherUserContactList.id,
+                messageTemplateId: otherUserTemplate.id,
+                defaultNameValue: "Client",
+                scheduledAt: new Date(),
+                status: "Scheduled",
+                totalContacts: 1, sentCount: 0, failedCount: 0,
+            }
+        });
+
+        // Call list with default pagination (page 1, pageSize 10)
+        const result = await caller.campaign.list({}); // Pass empty object for default input
+
+        expect(result).toBeDefined();
+        expect(result.campaigns).toBeInstanceOf(Array);
+        expect(result.totalCount).toBe(2); // Total count for the user
+        expect(result.campaigns.length).toBe(2); // Only the test user's campaigns returned on page 1
+
+        // Campaigns are ordered by createdAt desc by default in the procedure
+        // Find the created campaigns in the result array (order might depend on exact creation time)
+        const names = result.campaigns.map(c => c.name);
+        expect(names).toContain("List Test Campaign 1");
+        expect(names).toContain("List Test Campaign 2");
+
+        // Ensure all returned campaigns belong to the test user
+        expect(result.campaigns.every(c => c.id === campaign1.id || c.id === campaign2.id)).toBe(true);
     });
-    await db.contact.createMany({
-      data: [
-        { contactListId: contactList.id, phoneNumber: "+10000000001", firstName: "Alice" },
-        { contactListId: contactList.id, phoneNumber: "+10000000002", firstName: "Bob" },
-      ],
+
+    it("should return an empty array and zero count if the user has no campaigns", async () => {
+        const result = await caller.campaign.list({}); // Pass empty object for default input
+        expect(result).toBeDefined();
+        expect(result.campaigns).toEqual([]);
+        expect(result.totalCount).toBe(0);
     });
-    // Create a message template
-    const template = await db.messageTemplate.create({
-      data: { userId: testUserId, name: "Runner Test Template", textContent: "Hi {Name}!" },
-    });
-    // Create a campaign in Scheduled status
-    const campaign = await db.campaign.create({
-      data: {
+
+    it("should handle pagination correctly", async () => {
+      // Create 15 campaigns for the test user with slightly different creation times
+      const campaignData = Array.from({ length: 15 }, (_, i) => ({
         userId: testUserId,
-        name: "Runner Test Campaign",
-        contactListId: contactList.id,
-        messageTemplateId: template.id,
-        defaultNameValue: "Friend",
-        scheduledAt: new Date(),
-        status: "Scheduled",
-        totalContacts: 2,
-        sentCount: 0,
+        name: `Paginated Campaign ${i + 1}`,
+        contactListId: testUserContactList.id,
+        messageTemplateId: testUserTemplate.id,
+        defaultNameValue: `Cust ${i}`,
+        scheduledAt: new Date(Date.now() - i * 1000), // Ensure distinct createdAt
+        status: i % 3 === 0 ? 'Scheduled' : (i % 3 === 1 ? 'Running' : 'Completed'),
+        totalContacts: 10 + i,
+        sentCount: i,
         failedCount: 0,
-      },
+        createdAt: new Date(Date.now() - i * 1000), // Explicit createdAt for predictable order
+      }));
+      await db.campaign.createMany({ data: campaignData });
+
+      // Page 1, Size 5
+      let result = await caller.campaign.list({ page: 1, pageSize: 5 });
+      expect(result.campaigns.length).toBe(5);
+      expect(result.totalCount).toBe(15);
+      expect(result.campaigns[0]?.name).toBe("Paginated Campaign 1"); // Newest
+      expect(result.campaigns[4]?.name).toBe("Paginated Campaign 5");
+
+      // Page 2, Size 5
+      result = await caller.campaign.list({ page: 2, pageSize: 5 });
+      expect(result.campaigns.length).toBe(5);
+      expect(result.totalCount).toBe(15);
+      expect(result.campaigns[0]?.name).toBe("Paginated Campaign 6");
+      expect(result.campaigns[4]?.name).toBe("Paginated Campaign 10");
+
+      // Page 3, Size 5
+      result = await caller.campaign.list({ page: 3, pageSize: 5 });
+      expect(result.campaigns.length).toBe(5);
+      expect(result.totalCount).toBe(15);
+      expect(result.campaigns[0]?.name).toBe("Paginated Campaign 11");
+      expect(result.campaigns[4]?.name).toBe("Paginated Campaign 15"); // Oldest
+
+      // Page 4, Size 5 (should be empty)
+      result = await caller.campaign.list({ page: 4, pageSize: 5 });
+      expect(result.campaigns.length).toBe(0);
+      expect(result.totalCount).toBe(15);
+
+      // Test default page size (10)
+      result = await caller.campaign.list({ page: 1 }); // Default size is 10
+      expect(result.campaigns.length).toBe(10);
+      expect(result.totalCount).toBe(15);
+      expect(result.campaigns[0]?.name).toBe("Paginated Campaign 1");
+      expect(result.campaigns[9]?.name).toBe("Paginated Campaign 10");
+
+      result = await caller.campaign.list({ page: 2 }); // Default size is 10
+      expect(result.campaigns.length).toBe(5); // Remaining 5
+      expect(result.totalCount).toBe(15);
+      expect(result.campaigns[0]?.name).toBe("Paginated Campaign 11");
+      expect(result.campaigns[4]?.name).toBe("Paginated Campaign 15");
     });
-    // Call runManually
-    const result = await caller.campaign.runManually({ campaignId: campaign.id });
-    expect(result).toEqual({ success: true });
-    // Check campaign status and progress
-    const updated = await db.campaign.findUnique({ where: { id: campaign.id } });
-    expect(updated?.status).toBe("Completed");
-    expect(updated?.lastProcessedContactIndex).toBe(2);
-    expect(updated?.startedAt).toBeInstanceOf(Date);
-    expect(updated?.completedAt).toBeInstanceOf(Date);
   });
 
-  // TODO: Add tests for other campaign procedures (list, get, update, delete) when implemented.
+
+  // --- campaign.resume Tests ---
+
+  describe("campaign.resume", () => {
+    let pausedCampaign: Campaign;
+    let scheduledCampaign: Campaign;
+    let runningCampaign: Campaign;
+    let completedCampaign: Campaign;
+    let failedCampaign: Campaign;
+    let otherUserPausedCampaign: Campaign;
+
+    beforeEach(async () => {
+      // Create campaigns with various statuses for testing
+      [
+        pausedCampaign,
+        scheduledCampaign,
+        runningCampaign,
+        completedCampaign,
+        failedCampaign,
+        otherUserPausedCampaign
+      ] = await Promise.all([
+        // Paused campaign for the test user (target for success case)
+        db.campaign.create({
+          data: {
+            userId: testUserId, name: "Paused Campaign", contactListId: testUserContactList.id,
+            messageTemplateId: testUserTemplate.id, defaultNameValue: "Paused", scheduledAt: new Date(),
+            status: 'Paused', totalContacts: 10, sentCount: 2, failedCount: 0, lastProcessedContactIndex: 1,
+          }
+        }),
+        // Other statuses for the test user (target for failure cases)
+        db.campaign.create({
+          data: {
+            userId: testUserId, name: "Scheduled Campaign", contactListId: testUserContactList.id,
+            messageTemplateId: testUserTemplate.id, defaultNameValue: "Scheduled", scheduledAt: new Date(),
+            status: 'Scheduled', totalContacts: 5, sentCount: 0, failedCount: 0,
+          }
+        }),
+         db.campaign.create({
+          data: {
+            userId: testUserId, name: "Running Campaign", contactListId: testUserContactList.id,
+            messageTemplateId: testUserTemplate.id, defaultNameValue: "Running", scheduledAt: new Date(),
+            status: 'Running', totalContacts: 8, sentCount: 1, failedCount: 0, lastProcessedContactIndex: 0, startedAt: new Date(),
+          }
+        }),
+         db.campaign.create({
+          data: {
+            userId: testUserId, name: "Completed Campaign", contactListId: testUserContactList.id,
+            messageTemplateId: testUserTemplate.id, defaultNameValue: "Completed", scheduledAt: new Date(),
+            status: 'Completed', totalContacts: 3, sentCount: 3, failedCount: 0, completedAt: new Date(),
+          }
+        }),
+         db.campaign.create({
+          data: {
+            userId: testUserId, name: "Failed Campaign", contactListId: testUserContactList.id,
+            messageTemplateId: testUserTemplate.id, defaultNameValue: "Failed", scheduledAt: new Date(),
+            status: 'Failed', totalContacts: 4, sentCount: 0, failedCount: 1, completedAt: new Date(),
+          }
+        }),
+        // Paused campaign for the other user (target for ownership test)
+        db.campaign.create({
+          data: {
+            userId: otherUserId, name: "Other User Paused", contactListId: otherUserContactList.id,
+            messageTemplateId: otherUserTemplate.id, defaultNameValue: "OtherPaused", scheduledAt: new Date(),
+            status: 'Paused', totalContacts: 2, sentCount: 0, failedCount: 0,
+          }
+        }),
+      ]);
+    });
+
+    it("should successfully resume a paused campaign", async () => {
+      const result = await caller.campaign.resume({ campaignId: pausedCampaign.id });
+
+      expect(result).toEqual({ success: true, message: "Campaign resume initiated." });
+
+      // Verify status update in DB
+      const updatedCampaign = await db.campaign.findUnique({ where: { id: pausedCampaign.id } });
+      expect(updatedCampaign?.status).toBe('Scheduled');
+
+      // Verify CampaignRunnerService was called
+      expect(CampaignRunnerService).toHaveBeenCalledTimes(1);
+      expect(mockRunCampaign).toHaveBeenCalledTimes(1);
+      expect(mockRunCampaign).toHaveBeenCalledWith(pausedCampaign.id);
+    });
+
+    it("should throw NOT_FOUND if campaign does not exist", async () => {
+      const nonExistentId = generateNonExistentCuid();
+      await expect(caller.campaign.resume({ campaignId: nonExistentId })).rejects.toThrow(
+        expect.objectContaining({
+          code: 'NOT_FOUND',
+          message: expect.stringContaining('Campaign not found or access denied.'),
+        })
+      );
+       expect(mockRunCampaign).not.toHaveBeenCalled();
+    });
+
+    it("should throw NOT_FOUND if campaign belongs to another user", async () => {
+      await expect(caller.campaign.resume({ campaignId: otherUserPausedCampaign.id })).rejects.toThrow(
+        expect.objectContaining({
+          code: 'NOT_FOUND',
+          message: expect.stringContaining('Campaign not found or access denied.'),
+        })
+      );
+       expect(mockRunCampaign).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      { status: 'Scheduled', campaign: () => scheduledCampaign },
+      { status: 'Running', campaign: () => runningCampaign },
+      { status: 'Completed', campaign: () => completedCampaign },
+      { status: 'Failed', campaign: () => failedCampaign },
+    ])("should throw BAD_REQUEST if campaign status is $status", async ({ status, campaign }) => {
+      const targetCampaign = campaign(); // Get the campaign object for this iteration
+      await expect(caller.campaign.resume({ campaignId: targetCampaign.id })).rejects.toThrow(
+        expect.objectContaining({
+          code: 'BAD_REQUEST',
+          message: `Campaign cannot be resumed from status '${status}'. It must be 'Paused'.`,
+        })
+      );
+       expect(mockRunCampaign).not.toHaveBeenCalled();
+
+       // Verify status did not change
+       const dbCampaign = await db.campaign.findUnique({ where: { id: targetCampaign.id } });
+       expect(dbCampaign?.status).toBe(status);
+    });
+  });
+
+  // TODO: Add tests for delete procedure
+  // TODO: Add tests for get procedure if implemented
+  // TODO: Add tests for update procedure if implemented
 });

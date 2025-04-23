@@ -1,16 +1,18 @@
 "use client"; // Required for hooks like useState, useEffect, and tRPC hooks
 
-import React from "react";
+import React, { useState, useMemo } from "react"; // Import useState and useMemo
 import Link from "next/link";
-import { type ColumnDef } from "@tanstack/react-table";
+import { type ColumnDef, type PaginationState } from "@tanstack/react-table"; // Import PaginationState
 import { MoreHorizontal, ArrowUpDown } from "lucide-react";
 import { format } from 'date-fns'; // For date formatting
+import type { inferRouterOutputs } from '@trpc/server'; // Import inferRouterOutputs
+import type { AppRouter } from '~/server/api/root'; // Import AppRouter type
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { DataTable } from "../../../components/data-table"; // Use relative path
 import { api } from "~/trpc/react"; // Import tRPC API hook
-import { type Campaign } from "@prisma/client"; // Import Campaign type
+// import { type Campaign } from "@prisma/client"; // No longer need the full Campaign type here
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,12 +23,16 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner"; // For notifications
 
-// Define columns for the DataTable
+// Infer the output type of the campaign.list procedure
+type RouterOutput = inferRouterOutputs<AppRouter>;
+type CampaignListItem = RouterOutput['campaign']['list']['campaigns'][number];
+
+// Define columns for the DataTable using the inferred type
 const getColumns = (
   resumeMutation: ReturnType<typeof api.campaign.resume.useMutation>,
   deleteMutation: ReturnType<typeof api.campaign.delete.useMutation>,
   utils: ReturnType<typeof api.useUtils>
-): ColumnDef<Campaign>[] => [
+): ColumnDef<CampaignListItem>[] => [
   {
     accessorKey: "name",
     header: ({ column }) => (
@@ -164,15 +170,56 @@ const getStatusColor = (status: string) => {
 
 export default function CampaignsPage() {
   const utils = api.useUtils(); // Get tRPC utils for invalidation
-  const campaignsQuery = api.campaign.list.useQuery(); // Fetch campaigns
+
+  // --- Pagination State ---
+  const [{ pageIndex, pageSize }, setPagination] =
+    useState<PaginationState>({
+      pageIndex: 0, // Initial page index (0-based)
+      pageSize: 10, // Initial page size
+    });
+
+  const pagination = useMemo(
+    () => ({
+      pageIndex,
+      pageSize,
+    }),
+    [pageIndex, pageSize]
+  );
+  // --- End Pagination State ---
+
+  // --- tRPC Query ---
+  const campaignsQuery = api.campaign.list.useQuery(
+    {
+      page: pageIndex + 1, // API uses 1-based page number
+      pageSize: pageSize,
+    }
+    // Removed keepPreviousData option as it caused TS error
+    // TanStack Query's default behavior might suffice or use placeholderData if needed
+  );
+  // --- End tRPC Query ---
+
   const resumeMutation = api.campaign.resume.useMutation(); // Resume mutation hook
   const deleteMutation = api.campaign.delete.useMutation(); // Delete mutation hook
 
+  // --- Calculate Page Count ---
+  const pageCount = useMemo(() => {
+    return campaignsQuery.data?.totalCount
+      ? Math.ceil(campaignsQuery.data.totalCount / pageSize)
+      : 0;
+  }, [campaignsQuery.data?.totalCount, pageSize]);
+  // --- End Calculate Page Count ---
+
   // Memoize columns to prevent re-creation on every render
-  const columns = React.useMemo(
+  const columns = useMemo(
     () => getColumns(resumeMutation, deleteMutation, utils),
     [resumeMutation, deleteMutation, utils] // Dependencies for memoization
   );
+
+  // Handle loading and error states
+  const isLoading = campaignsQuery.isLoading;
+  const isError = campaignsQuery.isError;
+  const error = campaignsQuery.error;
+  const campaignData = campaignsQuery.data?.campaigns ?? []; // Default to empty array
 
   return (
     <div className="container mx-auto py-10">
@@ -189,12 +236,23 @@ export default function CampaignsPage() {
           </div>
         </CardHeader>
         <CardContent>
-          {campaignsQuery.isLoading && <p>Loading campaigns...</p>}
-          {campaignsQuery.error && <p className="text-red-600">Error loading campaigns: {campaignsQuery.error.message}</p>}
-          {campaignsQuery.data && (
-            <DataTable columns={columns} data={campaignsQuery.data} />
+          {isLoading && <p>Loading campaigns...</p>} {/* Simplified loading check */}
+          {isError && <p className="text-red-600">Error loading campaigns: {error?.message}</p>}
+          {!isLoading && !isError && (
+            <DataTable
+              columns={columns}
+              data={campaignData} // campaignData is now correctly typed as CampaignListItem[]
+              // --- Pass Pagination Props ---
+              pageCount={pageCount}
+              pagination={pagination}
+              onPaginationChange={setPagination}
+              // --- Optional Filtering ---
+              // filterColumnId="name" // Example: If you want to filter by name
+              // filterPlaceholder="Filter by name..."
+            />
           )}
-           {campaignsQuery.data?.length === 0 && !campaignsQuery.isLoading && (
+           {/* Show 'No results' only if not loading and data array is empty */}
+           {!isLoading && !isError && campaignData.length === 0 && (
              <p className="text-muted-foreground text-center py-4">No campaigns found. Create one to get started!</p>
            )}
         </CardContent>

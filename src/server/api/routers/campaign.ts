@@ -154,17 +154,50 @@ export const campaignRouter = createTRPCRouter({
 
   // Procedure to list campaigns for the current user
   list: protectedProcedure
-    .query(async ({ ctx }) => {
+    .input(
+      z.object({
+        page: z.number().int().positive().optional().default(1),
+        pageSize: z.number().int().positive().optional().default(10),
+      })
+    )
+    .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
+      const { page, pageSize } = input;
 
-      const campaigns = await ctx.db.campaign.findMany({
-        where: { userId: userId },
-        orderBy: { createdAt: 'desc' }, // Order by creation date, newest first
-        // Optionally include related data if needed by the table
-        // include: { contactList: { select: { name: true } }, messageTemplate: { select: { name: true } } }
-      });
+      const skip = (page - 1) * pageSize;
+      const take = pageSize;
 
-      return campaigns;
+      // Fetch total count and paginated campaigns in parallel
+      const [totalCount, campaigns] = await Promise.all([
+        ctx.db.campaign.count({
+          where: { userId: userId },
+        }),
+        ctx.db.campaign.findMany({
+          where: { userId: userId },
+          orderBy: { createdAt: 'desc' }, // Order by creation date, newest first
+          skip: skip,
+          take: take,
+          // Select only necessary fields for the list view
+          select: {
+            id: true,
+            name: true,
+            status: true,
+            scheduledAt: true,
+            createdAt: true,
+            totalContacts: true,
+            sentCount: true,
+            failedCount: true,
+            // Optionally include related data if needed by the table, but keep it minimal
+            // contactList: { select: { name: true } },
+            // messageTemplate: { select: { name: true } }
+          }
+        })
+      ]);
+
+      return {
+        campaigns,
+        totalCount,
+      };
     }),
 
 
