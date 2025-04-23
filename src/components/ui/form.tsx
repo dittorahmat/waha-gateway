@@ -91,15 +91,23 @@ function FormLabel({
   className,
   ...props
 }: React.ComponentProps<typeof LabelPrimitive.Root>) {
-  const { error, formItemId } = useFormField()
+  const { error, formItemId } = useFormField();
+  console.log('[DEBUG] FormLabel props:', { ...props, className, htmlFor: formItemId });
 
   return (
     <Label
+      ref={node => {
+        if (node) {
+          console.log('[DEBUG] FormLabel outerHTML:', node.outerHTML);
+        }
+        if (typeof props.ref === 'function') props.ref(node);
+        else if (props.ref) (props.ref as React.MutableRefObject<any>).current = node;
+      }}
       data-slot="form-label"
       data-error={!!error}
       className={cn("data-[error=true]:text-destructive", className)}
-      htmlFor={formItemId}
       {...props}
+      htmlFor={props.htmlFor ?? formItemId}
     />
   )
 }

@@ -1,5 +1,6 @@
 "use client";
 
+console.log('[DEBUG] campaign-form.tsx loaded');
 import React, { useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
@@ -52,6 +53,7 @@ const formSchema = z.object({
 type CampaignFormValues = z.infer<typeof formSchema>;
 
 export function CampaignForm() {
+  console.log('[DEBUG] CampaignForm rendered');
   console.log('[DEBUG] CampaignForm rendered');
   const router = useRouter();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -193,6 +195,11 @@ export function CampaignForm() {
     }
   }
 
+  console.log('[DEBUG] Rendering form fields', {
+    contactListsQuery,
+    templatesQuery,
+    defaultValues: form.getValues(),
+  });
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
@@ -202,9 +209,9 @@ export function CampaignForm() {
           name="name"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Campaign Name</FormLabel>
-              <FormControl>
-                <Input placeholder="e.g., Summer Sale Promotion" {...field} />
+              <label htmlFor="campaign-name" className="block text-sm font-medium leading-6 text-gray-900">Campaign Name</label>
+               <FormControl>
+                 <Input id="campaign-name" placeholder="e.g., Summer Sale Promotion" {...field} />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -217,25 +224,28 @@ export function CampaignForm() {
           name="contactListId"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Contact List</FormLabel>
-              <Select onValueChange={field.onChange} defaultValue={field.value} disabled={contactListsQuery.isLoading}>
-                <FormControl>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a contact list..." />
-                  </SelectTrigger>
-                </FormControl>
-                <SelectContent>
-                  {contactListsQuery.isLoading && <SelectItem value="loading" disabled>Loading...</SelectItem>}
-                  {contactListsQuery.data?.map((list) => (
-                    <SelectItem key={list.id} value={list.id}>
-                      {list.name} ({list.contactCount} contacts)
-                    </SelectItem>
-                  ))}
-                  {contactListsQuery.isSuccess && contactListsQuery.data?.length === 0 && (
-                     <SelectItem value="no-lists" disabled>No contact lists found.</SelectItem>
-                  )}
-                </SelectContent>
-              </Select>
+              <label htmlFor="contact-list" className="block text-sm font-medium leading-6 text-gray-900">Contact List</label>
+<FormControl>
+  <select
+    id="contact-list"
+    name={field.name}
+    value={field.value}
+    onChange={field.onChange}
+    disabled={contactListsQuery.isLoading}
+    className="block w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+  >
+    <option value="">Select a contact list...</option>
+    {contactListsQuery.isLoading && <option value="loading" disabled>Loading...</option>}
+    {contactListsQuery.data?.map((list) => (
+      <option key={list.id} value={list.id}>
+        {list.name} ({list.contactCount} contacts)
+      </option>
+    ))}
+    {contactListsQuery.isSuccess && contactListsQuery.data?.length === 0 && (
+      <option value="no-lists" disabled>No contact lists found.</option>
+    )}
+  </select>
+</FormControl>
               <FormDescription>
                 The list of contacts to send this campaign to.
               </FormDescription>
@@ -250,25 +260,28 @@ export function CampaignForm() {
           name="messageTemplateId"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Message Template</FormLabel>
-              <Select onValueChange={field.onChange} defaultValue={field.value} disabled={templatesQuery.isLoading}>
-                <FormControl>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a message template..." />
-                  </SelectTrigger>
-                </FormControl>
-                <SelectContent>
-                   {templatesQuery.isLoading && <SelectItem value="loading" disabled>Loading...</SelectItem>}
-                   {templatesQuery.data?.map((template) => (
-                    <SelectItem key={template.id} value={template.id}>
-                      {template.name}
-                    </SelectItem>
-                  ))}
-                   {templatesQuery.isSuccess && templatesQuery.data?.length === 0 && (
-                     <SelectItem value="no-templates" disabled>No templates found.</SelectItem>
-                  )}
-                </SelectContent>
-              </Select>
+              <label htmlFor="message-template" className="block text-sm font-medium leading-6 text-gray-900">Message Template</label>
+<FormControl>
+  <select
+    id="message-template"
+    name={field.name}
+    value={field.value}
+    onChange={field.onChange}
+    disabled={templatesQuery.isLoading}
+    className="block w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+  >
+    <option value="">Select a message template...</option>
+    {templatesQuery.isLoading && <option value="loading" disabled>Loading...</option>}
+    {templatesQuery.data?.map((template) => (
+      <option key={template.id} value={template.id}>
+        {template.name}
+      </option>
+    ))}
+    {templatesQuery.isSuccess && templatesQuery.data?.length === 0 && (
+      <option value="no-templates" disabled>No templates found.</option>
+    )}
+  </select>
+</FormControl>
               <FormDescription>
                 The message content to send. Use <code>{`{Name}`}</code> for personalization.
               </FormDescription>
@@ -279,7 +292,7 @@ export function CampaignForm() {
 
         {/* Image Attachment Section - Managed by useState, not FormField */}
         <div className="space-y-3 rounded-md border p-4">
-           <FormLabel>Attach Image? (Optional)</FormLabel>
+           <FormLabel htmlFor="attach-image">Attach Image? (Optional)</FormLabel>
            <RadioGroup
              onValueChange={(value: string) => {
                const shouldAttach = value === 'true';
@@ -296,17 +309,17 @@ export function CampaignForm() {
            >
              <FormItem className="flex items-center space-x-3 space-y-0">
                <FormControl>
-                 <RadioGroupItem value="false" />
+                 <RadioGroupItem value="false" id="no-image" />
                </FormControl>
-               <FormLabel className="font-normal">
+               <FormLabel className="font-normal" htmlFor="no-image">
                  No Image
                </FormLabel>
              </FormItem>
              <FormItem className="flex items-center space-x-3 space-y-0">
                <FormControl>
-                 <RadioGroupItem value="true" />
+                 <RadioGroupItem value="true" id="attach-image" />
                </FormControl>
-               <FormLabel className="font-normal">
+               <FormLabel className="font-normal" htmlFor="attach-image">
                  Attach Image
                </FormLabel>
              </FormItem>
@@ -317,7 +330,7 @@ export function CampaignForm() {
         {/* Conditional Image Source Selection - Managed by useState */}
         {attachImageState && (
           <div className="space-y-3 rounded-md border p-4">
-            <FormLabel>Image Source</FormLabel>
+            <FormLabel htmlFor="image-source">Image Source</FormLabel>
             <RadioGroup
               onValueChange={(value: 'upload' | 'library') => {
                 setImageSourceState(value);
@@ -330,17 +343,17 @@ export function CampaignForm() {
             >
               <FormItem className="flex items-center space-x-3 space-y-0">
                 <FormControl>
-                  <RadioGroupItem value="upload" />
+                  <RadioGroupItem value="upload" id="upload-image" />
                 </FormControl>
-                <FormLabel className="font-normal">
+                <FormLabel className="font-normal" htmlFor="upload-image">
                   Upload New Image
                 </FormLabel>
               </FormItem>
               <FormItem className="flex items-center space-x-3 space-y-0">
                 <FormControl>
-                  <RadioGroupItem value="library" />
+                  <RadioGroupItem value="library" id="select-from-library" />
                 </FormControl>
-                <FormLabel className="font-normal">
+                <FormLabel className="font-normal" htmlFor="select-from-library">
                   Select from Media Library
                 </FormLabel>
               </FormItem>
@@ -358,11 +371,12 @@ export function CampaignForm() {
             name="mediaLibraryItemId" // Use this field to display potential upload errors
             render={() => ( // field object isn't used directly here
               <FormItem>
-                <FormLabel>Upload Image File</FormLabel>
+                <FormLabel htmlFor="upload-image-file">Upload Image File</FormLabel>
                 <FormControl>
                    <Input
                       type="file"
                       accept="image/jpeg, image/png, image/gif" // Specify acceptable image types
+                      id="upload-image-file"
                       onChange={(e) => {
                         const file = e.target.files?.[0] ?? null; // Ensure null if undefined
                         setSelectedFile(file);
@@ -391,9 +405,9 @@ export function CampaignForm() {
           name="defaultNameValue"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Default Name Value</FormLabel>
-              <FormControl>
-                <Input placeholder="e.g., Friend, Valued Customer" {...field} />
+              <label htmlFor="default-name-value" className="block text-sm font-medium leading-6 text-gray-900">Default Name Value</label>
+               <FormControl>
+                 <Input id="default-name-value" placeholder="e.g., Friend, Valued Customer" {...field} />
               </FormControl>
               <FormDescription>
                 This value will be used if a contact's name is missing when using the <code>{`{Name}`}</code> placeholder in the template.
