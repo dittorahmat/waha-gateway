@@ -23,8 +23,8 @@ export const wahaRouter = createTRPCRouter({
   getSessionState: protectedProcedure.query(async ({ ctx }) => {
     const userId = ctx.session.user.id;
 
-    // Check if the current user is associated with the 'default' session in DB
-    const wahaSession = await db.wahaSession.findFirst({
+    // Check if the current user is associated with the 'default' session in DB (use ctx.db for testability)
+    const wahaSession = await ctx.db.wahaSession.findFirst({
       where: { userId: userId, sessionName: WAHA_DEFAULT_SESSION_NAME },
     });
 
@@ -41,7 +41,7 @@ export const wahaRouter = createTRPCRouter({
 
       // Update DB status if it differs from the API status
       if (wahaSession.status !== sessionState.status) {
-        await db.wahaSession.update({
+        await ctx.db.wahaSession.update({
           where: { id: wahaSession.id }, // Update the specific record
           data: { status: sessionState.status },
         });
@@ -140,12 +140,13 @@ export const wahaRouter = createTRPCRouter({
         await wahaClient.startSession(WAHA_DEFAULT_SESSION_NAME); // <-- RE-ENABLED
 
         // --- BEGIN FIX: Use a transaction for user check and session creation ---
-        await db.$transaction(async (tx) => {
+        await ctx.db.$transaction(async (tx) => {
           // Fetch the user *within the transaction*
           const foundUserInTx = await tx.user.findUnique({
             where: { id: userId },
             // No 'select' needed, fetch the full object (or at least the id)
           });
+          console.log('[ROUTER LOG] Result of tx.user.findUnique:', foundUserInTx);
 
           if (!foundUserInTx) {
             console.error(`User fetch failed *inside transaction*: User with ID '${userId}' not found.`);
@@ -197,8 +198,8 @@ export const wahaRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
 
-      // Check if the current user owns the 'default' session
-      const wahaSession = await db.wahaSession.findFirst({
+      // Check if the current user owns the 'default' session (use ctx.db for testability)
+      const wahaSession = await ctx.db.wahaSession.findFirst({
         where: { userId: userId, sessionName: WAHA_DEFAULT_SESSION_NAME },
       });
 
@@ -241,8 +242,8 @@ export const wahaRouter = createTRPCRouter({
   logoutSession: protectedProcedure.mutation(async ({ ctx }) => {
     const userId = ctx.session.user.id;
 
-    // Find the session associated with this user
-    const wahaSession = await db.wahaSession.findFirst({
+    // Find the session associated with this user (use ctx.db for testability)
+    const wahaSession = await ctx.db.wahaSession.findFirst({
       where: { userId: userId, sessionName: WAHA_DEFAULT_SESSION_NAME },
     });
 
@@ -256,8 +257,8 @@ export const wahaRouter = createTRPCRouter({
       // Call WAHA API to log out the 'default' session
       await wahaClient.logoutSession(WAHA_DEFAULT_SESSION_NAME);
 
-      // Delete the session record from DB to free up the slot
-      await db.wahaSession.delete({
+      // Delete the session record from DB to free up the slot (use ctx.db)
+      await ctx.db.wahaSession.delete({
         where: { id: wahaSession.id },
       });
 
@@ -272,7 +273,7 @@ export const wahaRouter = createTRPCRouter({
       // Attempt to delete the DB record even if API logout failed,
       // as the session might be defunct anyway.
       try {
-         await db.wahaSession.delete({
+         await ctx.db.wahaSession.delete({
            where: { id: wahaSession.id },
          });
          console.warn(`Session record deleted for user ${userId} despite potential logout API error.`);

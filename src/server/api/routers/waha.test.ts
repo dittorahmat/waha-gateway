@@ -21,7 +21,23 @@ vi.mock('../../db.ts', () => {
   });
   const $transaction = vi.fn(async (cb) => {
     console.log('[MOCK LOG] db.$transaction called');
-    return cb();
+    // Provide a tx object with user.findUnique
+    const tx = {
+      user: {
+        findUnique: vi.fn(async (args) => {
+          console.log('[MOCK LOG] tx.user.findUnique called with', args);
+          // Always return a user object for any id unless overridden in a test
+          return { id: args.where?.id ?? 'mock-user-id', name: 'Test User' };
+        })
+      },
+      wahaSession: {
+        create: vi.fn(async (...args) => {
+          console.log('[MOCK LOG] tx.wahaSession.create called with', args);
+          return { id: 'mock-session-id', ...args[0] };
+        })
+      }
+    };
+    return cb(tx);
   });
   return {
     db: {
