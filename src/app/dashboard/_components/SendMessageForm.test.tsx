@@ -1,10 +1,7 @@
-import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { SendMessageForm } from './SendMessageForm';
-import { api } from '@/trpc/react'; // Import the mocked api
+import React from 'react';
+import { vi } from 'vitest';
 
-// Mock the tRPC hook
+// Mock api.waha.getSessionState.useQuery before importing the component
 vi.mock('@/trpc/react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/trpc/react')>();
   return {
@@ -12,13 +9,29 @@ vi.mock('@/trpc/react', async (importOriginal) => {
     api: {
       waha: {
         sendTextMessage: {
-          useMutation: vi.fn(), // Mock the useMutation hook
+          useMutation: vi.fn(),
         },
-        // Add mocks for other procedures if needed
+        getSessionState: {
+          useQuery: vi.fn(() => {
+            console.log('Mocked useQuery called');
+            return { data: { connected: true, status: 'WORKING' } };
+          }),
+        },
       },
     },
   };
 });
+
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { SendMessageForm } from './SendMessageForm';
+import { api } from '@/trpc/react';
+
+// Cast the mocked hook for type safety
+const mockedUseMutation = vi.mocked(api.waha.sendTextMessage.useMutation);
+const mockMutate = vi.fn();
+
 
 // Cast the mocked hook for type safety
 const mockedUseMutation = vi.mocked(api.waha.sendTextMessage.useMutation);

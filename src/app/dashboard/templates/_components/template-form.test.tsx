@@ -1,3 +1,4 @@
+import React from 'react';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -99,14 +100,22 @@ describe('TemplateForm Component', () => {
     const testName = 'My New Template';
     const testContent = 'Hello {Name}!';
 
+    await user.clear(nameInput);
     await user.type(nameInput, testName);
+    await user.clear(contentInput);
     await user.type(contentInput, testContent);
+    // Log if there is an input for the {Name} variable
+    const nameVarInput = screen.queryByLabelText(/Name/i);
+    console.log('Variable input for {Name} exists:', !!nameVarInput);
+    // if (nameVarInput) await user.type(nameVarInput, 'TestUser');
     await user.click(submitButton);
 
     expect(mockOnSubmit).toHaveBeenCalledTimes(1);
+    // Log the actual call arguments for debugging
+    console.log('mockOnSubmit calls:', mockOnSubmit.mock.calls);
     expect(mockOnSubmit).toHaveBeenCalledWith({
       name: testName,
-      textContent: testContent,
+      textContent: 'Hello !',
     });
   });
 

@@ -20,11 +20,6 @@ describe('WahaApiClient Service', () => {
   const sessionName = 'test-session';
 
   beforeEach(() => {
-    // Create a new instance before each test to ensure isolation
-    wahaClient = new WahaApiClient();
-    // Reset mocks before each test run
-    vi.clearAllMocks();
-
     // Provide default mock implementation for axios.create()
     // This mock axios instance will be used by the WahaApiClient
     const mockAxiosInstance = {
@@ -36,6 +31,12 @@ describe('WahaApiClient Service', () => {
       // Add other methods if needed (put, delete, etc.)
     };
     mockedAxios.create.mockReturnValue(mockAxiosInstance as any);
+    console.log('[TEST] mockAxiosInstance shape:', mockAxiosInstance);
+
+    // Create a new instance after the mock is set up
+    wahaClient = new WahaApiClient();
+    // Reset mocks before each test run
+    vi.clearAllMocks();
   });
 
   it('constructor should create axios instance with correct config', () => {
@@ -49,7 +50,7 @@ describe('WahaApiClient Service', () => {
       },
     });
     // Check if interceptor was added (optional, depends on strictness)
-    const mockAxiosInstance = mockedAxios.create.mock.results[0]!.value; // Add ! assertion
+    const mockAxiosInstance = mockedAxios.create.mock.results.at(-1)!.value; // Add ! assertion
     expect(mockAxiosInstance.interceptors.response.use).toHaveBeenCalledTimes(1);
   });
 
@@ -57,9 +58,9 @@ describe('WahaApiClient Service', () => {
     it('should call POST /api/sessions/start with session name', async () => {
       const mockPost = vi.fn().mockResolvedValue({ data: {} }); // Mock successful response
       mockedAxios.create.mockReturnValue({ post: mockPost, interceptors: { response: { use: vi.fn() } } } as any);
-      wahaClient = new WahaApiClient(); // Recreate client with mocked post
+      const testClient = new WahaApiClient(); // Recreate client with mocked post
 
-      await wahaClient.startSession(sessionName);
+      await testClient.startSession(sessionName);
 
       expect(mockPost).toHaveBeenCalledTimes(1);
       expect(mockPost).toHaveBeenCalledWith(
@@ -79,53 +80,40 @@ describe('WahaApiClient Service', () => {
       };
       const mockPost = vi.fn().mockRejectedValue(errorResponse);
       mockedAxios.create.mockReturnValue({ post: mockPost, interceptors: { response: { use: vi.fn() } } } as any);
-      wahaClient = new WahaApiClient();
+      const testClient = new WahaApiClient();
 
       // Expect no error to be thrown
-      await expect(wahaClient.startSession(sessionName)).resolves.toBeUndefined();
+      await expect(testClient.startSession(sessionName)).resolves.toBeUndefined();
       expect(mockPost).toHaveBeenCalledTimes(1);
     });
 
-     it('should throw error for other non-422 errors during start', async () => {
-       const errorResponse = {
-         response: {
-           status: 500,
-           data: { message: 'Internal Server Error' },
-         },
-         isAxiosError: true,
-         message: 'Request failed with status code 500',
-       };
-       const mockPost = vi.fn().mockRejectedValue(errorResponse);
-       mockedAxios.create.mockReturnValue({ post: mockPost, interceptors: { response: { use: vi.fn() } } } as any);
-       wahaClient = new WahaApiClient();
+    it('should throw error for other non-422 errors during start', async () => {
+      const errorResponse = new Error('Request failed with status code 500');
+      (errorResponse as any).isAxiosError = true;
+      (errorResponse as any).response = { status: 500, data: { message: 'Internal Server Error' } };
+      (errorResponse as any).message = 'Request failed with status code 500';
+      const mockPost = vi.fn().mockRejectedValue(errorResponse);
+      mockedAxios.create.mockReturnValue({ post: mockPost, interceptors: { response: { use: vi.fn() } } } as any);
+      const testClient = new WahaApiClient();
 
-       await expect(wahaClient.startSession(sessionName)).rejects.toThrow(
-         `Failed to start WAHA session '${sessionName}'. Status: 500. Message: Request failed with status code 500`
-       );
-       expect(mockPost).toHaveBeenCalledTimes(1);
-     });
+      await expect(testClient.startSession(sessionName)).rejects.toThrow(
+        `Failed to start WAHA session '${sessionName}'. Status: 500. Message: Request failed with status code 500`
+      );
+      expect(mockPost).toHaveBeenCalledTimes(1);
+    });
   });
-
-
-  // - getSessionStatus (including QR code fetch) - Partially done below
-  // - getQrCode (tested implicitly via getSessionStatus)
-  // - requestCode
-  // - login (No explicit login method in client)
-  // - logout
-  // - getStatus
-  // - sendMessage
-  // - etc. (based on actual methods in wahaClient.ts)
-  // Remember to mock external calls (e.g., to the WAHA API)
 
   describe('getSessionStatus', () => {
     it('should call GET /api/sessions/{sessionName} and return status', async () => {
       const mockGetResponse = { data: { status: 'WORKING' } };
       const mockGet = vi.fn().mockResolvedValue(mockGetResponse);
       // Get the mocked instance created in beforeEach
-      const mockAxiosInstance = mockedAxios.create.mock.results[0]!.value;
+      mockedAxios.create.mockReturnValue({ get: mockGet, interceptors: { response: { use: vi.fn() } } } as any);
+      const testClient = new WahaApiClient();
+      const mockAxiosInstance = mockedAxios.create.mock.results.at(-1)!.value;
       mockAxiosInstance.get = mockGet; // Assign mock get to the instance
 
-      const result = await wahaClient.getSessionStatus(sessionName);
+      const result = await testClient.getSessionStatus(sessionName);
 
       expect(mockGet).toHaveBeenCalledTimes(1);
       expect(mockGet).toHaveBeenCalledWith(`/api/sessions/${sessionName}`);
@@ -138,10 +126,12 @@ describe('WahaApiClient Service', () => {
       const mockGet = vi.fn()
         .mockResolvedValueOnce(statusResponse) // First call for status
         .mockResolvedValueOnce(qrResponse);   // Second call for QR
-      const mockAxiosInstance = mockedAxios.create.mock.results[0]!.value;
+      mockedAxios.create.mockReturnValue({ get: mockGet, interceptors: { response: { use: vi.fn() } } } as any);
+      const testClient = new WahaApiClient();
+      const mockAxiosInstance = mockedAxios.create.mock.results.at(-1)!.value;
       mockAxiosInstance.get = mockGet;
 
-      const result = await wahaClient.getSessionStatus(sessionName);
+      const result = await testClient.getSessionStatus(sessionName);
 
       expect(mockGet).toHaveBeenCalledTimes(2);
       expect(mockGet).toHaveBeenNthCalledWith(1, `/api/sessions/${sessionName}`);
@@ -153,40 +143,50 @@ describe('WahaApiClient Service', () => {
       });
     });
 
-     it('should return status STOPPED if session fetch returns 404', async () => {
-       const errorResponse = {
-         response: { status: 404 },
-         isAxiosError: true,
-       };
-       const mockGet = vi.fn().mockRejectedValue(errorResponse);
-       const mockAxiosInstance = mockedAxios.create.mock.results[0]!.value;
-       mockAxiosInstance.get = mockGet;
+    it('should return status STOPPED if session fetch returns 404', async () => {
+      const errorResponse = {
+        response: { status: 404 },
+        isAxiosError: true,
+      };
+      const mockGet = vi.fn().mockRejectedValue(errorResponse);
+      const testClient = new WahaApiClient();
+      const mockAxiosInstance = mockedAxios.create.mock.results.at(-1)!.value;
+      mockAxiosInstance.get = mockGet;
 
-       const result = await wahaClient.getSessionStatus(sessionName);
+      const result = await testClient.getSessionStatus(sessionName);
 
-       expect(mockGet).toHaveBeenCalledTimes(1);
-       expect(mockGet).toHaveBeenCalledWith(`/api/sessions/${sessionName}`);
-       expect(result).toEqual({ status: 'STOPPED' });
-     });
+      expect(mockGet).toHaveBeenCalledTimes(1);
+      expect(mockGet).toHaveBeenCalledWith(`/api/sessions/${sessionName}`);
+      expect(result).toEqual({ status: 'STOPPED' });
+    });
 
-     it('should throw error for non-404 errors during status fetch', async () => {
-       const errorResponse = {
-         response: { status: 500 },
-         isAxiosError: true,
-       };
-       const mockGet = vi.fn().mockRejectedValue(errorResponse);
-       const mockAxiosInstance = mockedAxios.create.mock.results[0]!.value;
-       mockAxiosInstance.get = mockGet;
+    it('should throw error for non-404 errors during status fetch', async () => {
+      const errorResponse = new Error('Request failed with status code 500');
+      (errorResponse as any).isAxiosError = true;
+      (errorResponse as any).response = { status: 500 };
+      const mockGet = vi.fn().mockRejectedValue(errorResponse);
+      const testClient = new WahaApiClient();
+      const mockAxiosInstance = mockedAxios.create.mock.results.at(-1)!.value;
+      mockAxiosInstance.get = mockGet;
 
-       await expect(wahaClient.getSessionStatus(sessionName)).rejects.toThrow(
-         `Failed to get WAHA session status for '${sessionName}'.`
-       );
-       expect(mockGet).toHaveBeenCalledTimes(1);
-     });
+      await expect(testClient.getSessionStatus(sessionName)).rejects.toThrow(
+        `Failed to get WAHA session status for '${sessionName}'.`
+      );
+      expect(mockGet).toHaveBeenCalledTimes(1);
+    });
 
-      it('should throw error if QR code fetch fails', async () => {
-        const statusResponse = { data: { status: 'SCAN_QR_CODE' } };
-        const qrErrorResponse = {
+    it('should throw error if QR code fetch fails', async () => {
+      const statusResponse = { data: { status: 'SCAN_QR_CODE' } };
+      const qrErrorResponse = new Error('QR fetch failed');
+      (qrErrorResponse as any).isAxiosError = true;
+      (qrErrorResponse as any).response = { status: 500 };
+      (qrErrorResponse as any).message = 'QR fetch failed';
+      const mockGet = vi.fn()
+        .mockResolvedValueOnce(statusResponse) // First call for status
+        .mockRejectedValueOnce(qrErrorResponse); // Second call for QR fails
+      const testClient = new WahaApiClient();
+      const mockAxiosInstance = mockedAxios.create.mock.results.at(-1)!.value;
+      mockAxiosInstance.get = mockGet;
           response: { status: 500 },
           isAxiosError: true,
           message: 'QR fetch failed',
@@ -194,12 +194,13 @@ describe('WahaApiClient Service', () => {
         const mockGet = vi.fn()
           .mockResolvedValueOnce(statusResponse) // First call for status
           .mockRejectedValueOnce(qrErrorResponse); // Second call for QR fails
-        const mockAxiosInstance = mockedAxios.create.mock.results[0]!.value;
+        const testClient = new WahaApiClient();
+        const mockAxiosInstance = mockedAxios.create.mock.results.at(-1)!.value;
         mockAxiosInstance.get = mockGet;
 
         // The error from getQrCode should propagate
-        await expect(wahaClient.getSessionStatus(sessionName)).rejects.toThrow(
-           `Failed to get WAHA screenshot for '${sessionName}'.`
+        await expect(testClient.getSessionStatus(sessionName)).rejects.toThrow(
+          `Failed to get WAHA screenshot for '${sessionName}'.`
         );
         expect(mockGet).toHaveBeenCalledTimes(2); // Both calls attempted
       });
@@ -208,10 +209,12 @@ describe('WahaApiClient Service', () => {
   describe('logoutSession', () => {
     it('should call POST /api/sessions/{sessionName}/logout', async () => {
       const mockPost = vi.fn().mockResolvedValue({ data: {} });
-      const mockAxiosInstance = mockedAxios.create.mock.results[0]!.value;
+      mockedAxios.create.mockReturnValue({ post: mockPost, interceptors: { response: { use: vi.fn() } } } as any);
+      const testClient = new WahaApiClient();
+      const mockAxiosInstance = mockedAxios.create.mock.results.at(-1)!.value;
       mockAxiosInstance.post = mockPost;
 
-      await wahaClient.logoutSession(sessionName);
+      await testClient.logoutSession(sessionName);
 
       expect(mockPost).toHaveBeenCalledTimes(1);
       expect(mockPost).toHaveBeenCalledWith(`/api/sessions/${sessionName}/logout`);
@@ -220,10 +223,11 @@ describe('WahaApiClient Service', () => {
     it('should throw error if logout fails', async () => {
       const errorResponse = { response: { status: 500 }, isAxiosError: true };
       const mockPost = vi.fn().mockRejectedValue(errorResponse);
-      const mockAxiosInstance = mockedAxios.create.mock.results[0]!.value;
+      const testClient = new WahaApiClient();
+      const mockAxiosInstance = mockedAxios.create.mock.results.at(-1)!.value;
       mockAxiosInstance.post = mockPost;
 
-      await expect(wahaClient.logoutSession(sessionName)).rejects.toThrow(
+      await expect(testClient.logoutSession(sessionName)).rejects.toThrow(
         `Failed to logout WAHA session '${sessionName}'.`
       );
       expect(mockPost).toHaveBeenCalledTimes(1);
@@ -236,10 +240,12 @@ describe('WahaApiClient Service', () => {
 
     it('should call POST /api/{sessionName}/sendText with correct payload', async () => {
       const mockPost = vi.fn().mockResolvedValue({ data: { id: 'msg1' } });
-      const mockAxiosInstance = mockedAxios.create.mock.results[0]!.value;
+      mockedAxios.create.mockReturnValue({ post: mockPost, interceptors: { response: { use: vi.fn() } } } as any);
+      const testClient = new WahaApiClient();
+      const mockAxiosInstance = mockedAxios.create.mock.results.at(-1)!.value;
       mockAxiosInstance.post = mockPost;
 
-      const result = await wahaClient.sendTextMessage(sessionName, chatId, text);
+      const result = await testClient.sendTextMessage(sessionName, chatId, text);
 
       expect(mockPost).toHaveBeenCalledTimes(1);
       expect(mockPost).toHaveBeenCalledWith(
@@ -252,10 +258,11 @@ describe('WahaApiClient Service', () => {
     it('should throw error if sending text fails', async () => {
       const errorResponse = { response: { status: 400 }, isAxiosError: true };
       const mockPost = vi.fn().mockRejectedValue(errorResponse);
-      const mockAxiosInstance = mockedAxios.create.mock.results[0]!.value;
+      const testClient = new WahaApiClient();
+      const mockAxiosInstance = mockedAxios.create.mock.results.at(-1)!.value;
       mockAxiosInstance.post = mockPost;
 
-      await expect(wahaClient.sendTextMessage(sessionName, chatId, text)).rejects.toThrow(
+      await expect(testClient.sendTextMessage(sessionName, chatId, text)).rejects.toThrow(
         "Failed to send text message via WAHA."
       );
       expect(mockPost).toHaveBeenCalledTimes(1);
@@ -268,10 +275,11 @@ describe('WahaApiClient Service', () => {
     it('should call POST /api/sessions/{sessionName}/auth/request-code', async () => {
       const mockResponse = { data: { code: '123-456' } };
       const mockPost = vi.fn().mockResolvedValue(mockResponse);
-      const mockAxiosInstance = mockedAxios.create.mock.results[0]!.value;
+      const testClient = new WahaApiClient();
+      const mockAxiosInstance = mockedAxios.create.mock.results.at(-1)!.value;
       mockAxiosInstance.post = mockPost;
 
-      const result = await wahaClient.requestCode(sessionName, phoneNumber);
+      const result = await testClient.requestCode(sessionName, phoneNumber);
 
       expect(mockPost).toHaveBeenCalledTimes(1);
       expect(mockPost).toHaveBeenCalledWith(
@@ -284,10 +292,11 @@ describe('WahaApiClient Service', () => {
     it('should return null if requesting code fails', async () => {
       const errorResponse = { response: { status: 500 }, isAxiosError: true };
       const mockPost = vi.fn().mockRejectedValue(errorResponse);
-      const mockAxiosInstance = mockedAxios.create.mock.results[0]!.value;
+      const testClient = new WahaApiClient();
+      const mockAxiosInstance = mockedAxios.create.mock.results.at(-1)!.value;
       mockAxiosInstance.post = mockPost;
 
-      const result = await wahaClient.requestCode(sessionName, phoneNumber);
+      const result = await testClient.requestCode(sessionName, phoneNumber);
 
       expect(mockPost).toHaveBeenCalledTimes(1);
       expect(result).toBeNull();
@@ -306,10 +315,12 @@ describe('WahaApiClient Service', () => {
     it('should call POST /api/{sessionName}/sendImage with correct payload', async () => {
       const mockResponse = { data: { id: 'imgMsg1' } };
       const mockPost = vi.fn().mockResolvedValue(mockResponse);
-      const mockAxiosInstance = mockedAxios.create.mock.results[0]!.value;
+      mockedAxios.create.mockReturnValue({ post: mockPost, interceptors: { response: { use: vi.fn() } } } as any);
+      const testClient = new WahaApiClient();
+      const mockAxiosInstance = mockedAxios.create.mock.results.at(-1)!.value;
       mockAxiosInstance.post = mockPost;
 
-      const result = await wahaClient.sendImageMessage(sessionName, chatId, file, caption);
+      const result = await testClient.sendImageMessage(sessionName, chatId, file, caption);
 
       expect(mockPost).toHaveBeenCalledTimes(1);
       expect(mockPost).toHaveBeenCalledWith(
@@ -330,10 +341,11 @@ describe('WahaApiClient Service', () => {
      it('should throw error if sending image fails', async () => {
        const errorResponse = { response: { status: 400 }, isAxiosError: true };
        const mockPost = vi.fn().mockRejectedValue(errorResponse);
-       const mockAxiosInstance = mockedAxios.create.mock.results[0]!.value;
+       const testClient = new WahaApiClient();
+       const mockAxiosInstance = mockedAxios.create.mock.results.at(-1)!.value;
        mockAxiosInstance.post = mockPost;
 
-       await expect(wahaClient.sendImageMessage(sessionName, chatId, file, caption)).rejects.toThrow(
+       await expect(testClient.sendImageMessage(sessionName, chatId, file, caption)).rejects.toThrow(
          "Failed to send image message via WAHA."
        );
        expect(mockPost).toHaveBeenCalledTimes(1);
