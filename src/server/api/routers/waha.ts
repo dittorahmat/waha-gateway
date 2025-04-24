@@ -72,15 +72,19 @@ export const wahaRouter = createTRPCRouter({
    * Generates a session name, calls WAHA API, creates DB record.
    */
   startSession: protectedProcedure.mutation(async ({ ctx }) => {
+    console.log('[DEBUG startSession] imported db === ctx.db?', db === ctx.db, 'db keys:', Object.keys(db), 'ctx.db keys:', Object.keys(ctx.db));
     const userId = ctx.session.user.id;
     // Check if *any* 'default' session exists in the DB
-    const existingSession = await db.wahaSession.findFirst({
+    const existingSession = await ctx.db.wahaSession.findFirst({
       where: { sessionName: WAHA_DEFAULT_SESSION_NAME },
     });
-
+    console.log('[DEBUG startSession] existingSession:', existingSession);
+    console.log('[DEBUG startSession] existingSession.userId:', existingSession?.userId, 'ctx.session.user.id:', userId);
     if (existingSession) {
+      console.log('[DEBUG startSession] existingSession truthy, sameOwner:', existingSession.userId === userId);
       // A session exists. Check if it belongs to the current user.
       if (existingSession.userId === userId) {
+        console.log('[DEBUG startSession] restart existing session flow');
         // Current user already owns the session, just try starting it again
         console.log(
           `User ${userId} already associated with session ${WAHA_DEFAULT_SESSION_NAME}. Attempting restart.`,
@@ -95,7 +99,7 @@ export const wahaRouter = createTRPCRouter({
           );
 
           // Update DB with the actual status
-          await db.wahaSession.update({
+          await ctx.db.wahaSession.update({
             where: { id: existingSession.id },
             data: { status: currentState.status }, // Use actual status
           });
@@ -120,6 +124,7 @@ export const wahaRouter = createTRPCRouter({
           });
         }
       } else {
+        console.log('[DEBUG startSession] conflict: another user owns session:', existingSession.userId);
         // Another user owns the session
         console.warn(
           `User ${userId} attempted to start session, but user ${existingSession.userId} already owns the '${WAHA_DEFAULT_SESSION_NAME}' session.`,
@@ -131,6 +136,9 @@ export const wahaRouter = createTRPCRouter({
         });
       }
     } else {
+      console.log('[DEBUG startSession] new session flow, creating for user:', userId);
+      console.log('[DEBUG startSession] calling ctx.db.$transaction');
+      let waApiCalled = false;
       // No 'default' session exists, create one for the current user
       console.log(
         `No existing '${WAHA_DEFAULT_SESSION_NAME}' session found. Creating for user ${userId}.`,
@@ -138,7 +146,7 @@ export const wahaRouter = createTRPCRouter({
       try {
         // Call WAHA API to start the 'default' session (outside transaction)
         await wahaClient.startSession(WAHA_DEFAULT_SESSION_NAME); // <-- RE-ENABLED
-
+        waApiCalled = true;
         // --- BEGIN FIX: Use a transaction for user check and session creation ---
         await ctx.db.$transaction(async (tx) => {
           // Fetch the user *within the transaction*
@@ -166,13 +174,17 @@ export const wahaRouter = createTRPCRouter({
           });
         });
         // --- END FIX ---
-
         return { success: true, message: "Session creation initiated." };
       } catch (error) {
         console.error(
           `Failed to start new WAHA session ${WAHA_DEFAULT_SESSION_NAME} for user ${userId}:`,
           error,
         );
+        console.log('[DEBUG startSession] new-session catch error:', error, 'message:', error instanceof Error ? error.message : null, 'isTRPCError:', error instanceof TRPCError);
+        if (waApiCalled) {
+          console.log('[DEBUG startSession] transaction failure, propagating original error');
+          throw error;
+        }
         // Check if it's the specific 422 error we already know about
         if (error instanceof Error && error.message.includes("Status: 422")) {
            throw new TRPCError({
@@ -228,6 +240,7 @@ export const wahaRouter = createTRPCRouter({
            `Failed to request pairing code for session ${WAHA_DEFAULT_SESSION_NAME}, user ${userId}:`,
            error,
          );
+         console.log('[DEBUG requestPairingCode] caught error:', error, 'message:', error instanceof Error ? error.message : null);
          throw new TRPCError({
            code: "INTERNAL_SERVER_ERROR",
            message: error instanceof Error ? error.message : "Failed to request pairing code.",
@@ -270,6 +283,7 @@ export const wahaRouter = createTRPCRouter({
         `Failed to logout WAHA session ${WAHA_DEFAULT_SESSION_NAME} for user ${userId}:`,
         error,
       );
+      console.log('[DEBUG logoutSession] caught error:', error, 'type:', typeof error);
       // Attempt to delete the DB record even if API logout failed,
       // as the session might be defunct anyway.
       try {
