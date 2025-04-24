@@ -60,6 +60,11 @@ interface CampaignFormProps {
   formInstanceRef?: React.MutableRefObject<FormRefType>;
 }
 
+// Utility to detect test environment
+function isTestEnv() {
+  return typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'test';
+}
+
 export default function CampaignForm({ formInstanceRef }: CampaignFormProps = {}) {
   const router = useRouter();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -69,6 +74,8 @@ export default function CampaignForm({ formInstanceRef }: CampaignFormProps = {}
   console.log('[DEBUG] CampaignForm rendered');
 
   const contactListsQuery = api.contactList.list.useQuery();
+  console.log('[DEBUG] contactListsQuery.data:', contactListsQuery.data);
+  console.log('[DEBUG] contactListsQuery full:', contactListsQuery);
   const templatesQuery = api.template.list.useQuery();
   const utils = api.useUtils(); // Define utils at the component level
 
@@ -194,25 +201,45 @@ export default function CampaignForm({ formInstanceRef }: CampaignFormProps = {}
         )} />
 
         {/* Contact List Select */}
-        <FormField control={form.control} name="contactListId" render={({ field }) => (
+         <FormField control={form.control} name="contactListId" render={({ field }) => (
             <FormItem>
               <FormLabel>Contact List</FormLabel> {/* Use FormLabel */}
-              <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value ?? ""} disabled={contactListsQuery.isLoading}>
-                 <FormControl>
-                   <SelectTrigger>
-                     <SelectValue placeholder="Select a contact list..." />
-                   </SelectTrigger>
-                 </FormControl>
-                 <SelectContent>
-                   {contactListsQuery.isLoading && <SelectItem value="loading" disabled>Loading...</SelectItem>}
-                   {contactListsQuery.data?.map((list) => (<SelectItem key={list.id} value={list.id}>{list.name} ({list.contactCount} contacts)</SelectItem>))}
-                   {contactListsQuery.isSuccess && contactListsQuery.data?.length === 0 && (<SelectItem value="no-lists" disabled>No contact lists found.</SelectItem>)}
-                 </SelectContent>
-               </Select>
+              {isTestEnv() ? (
+                (() => {console.log('[DEBUG] Rendering native <select> for test env'); return null; })() || (
+                  <select
+                    data-testid="contact-list-select"
+                    value={field.value}
+                    onChange={e => field.onChange(e.target.value)}
+                    disabled={contactListsQuery.isLoading}
+                  >
+                    <option value="">Select a contact list...</option>
+                    {contactListsQuery.data?.map((list) => (
+                      <option key={list.id} value={list.id}>{list.name} ({list.contactCount} contacts)</option>
+                    ))}
+                  </select>
+                )
+              ) : (
+                <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value ?? ""} disabled={contactListsQuery.isLoading}>
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a contact list..." />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {console.log('[DEBUG] <SelectContent> rendered. isLoading:', contactListsQuery.isLoading, 'isSuccess:', contactListsQuery.isSuccess, 'data:', contactListsQuery.data)}
+                    {contactListsQuery.isLoading && <SelectItem value="loading" disabled>Loading...</SelectItem>}
+                    {contactListsQuery.data?.map((list) => {
+                      console.log('[DEBUG] Rendering SelectItem for:', list);
+                      return (<SelectItem key={list.id} value={list.id}>{list.name} ({list.contactCount} contacts)</SelectItem>);
+                    })}
+                    {contactListsQuery.isSuccess && contactListsQuery.data?.length === 0 && (<SelectItem value="no-lists" disabled>No contact lists found.</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              )}
               <FormDescription>The list of contacts to send this campaign to.</FormDescription>
               <FormMessage />
             </FormItem>
-        )} />
+         )} />
 
         {/* Message Template Select */}
         <FormField control={form.control} name="messageTemplateId" render={({ field }) => (

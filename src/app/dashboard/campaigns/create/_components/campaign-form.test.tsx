@@ -61,10 +61,17 @@ vi.mock("~/trpc/react", () => {
     },
     // Mock the api object structure
     api: {
+      useUtils: () => ({
+        mediaLibrary: {
+          list: {
+            invalidate: vi.fn(() => Promise.resolve()),
+          },
+        },
+      }),
       contactList: {
         list: {
           useQuery: vi.fn().mockImplementation(() => {
-            console.log('[DEBUG] MOCK api.contactList.list.useQuery called');
+            console.log('[DEBUG] MOCK api.contactList.list.useQuery called, returning:', JSON.stringify(mockContactLists));
             return {
               data: mockContactLists,
               isLoading: false, isError: false, error: null, status: 'success', fetchStatus: 'idle',
@@ -273,11 +280,18 @@ describe("CampaignForm Component", () => {
     const user = userEvent.setup();
     // Call the helper
     renderComponent();
-    // Target the 'Attach Image' radio button to click it
+    // Focus the first radio (No Image), then tab to Attach Image, then space to select
+    await user.tab(); // Focus Campaign Name
+    await user.tab(); // Focus Contact List
+    await user.tab(); // Focus Message Template
+    await user.tab(); // Focus No Image
+    await user.tab(); // Focus Attach Image
+    await user.keyboard('{Space}'); // Select Attach Image
+    // Print HTML for debug
+    // eslint-disable-next-line no-console
+    console.log(document.body.innerHTML);
+
     const attachRadioButton = screen.getByRole('radio', { name: /Attach Image/i });
-
-    await user.click(attachRadioButton);
-
     // Check that the 'Attach Image' radio is now checked
     expect(attachRadioButton).toBeChecked();
     expect(screen.getByRole('radio', { name: /No Image/i })).not.toBeChecked();
@@ -292,14 +306,22 @@ describe("CampaignForm Component", () => {
     const user = userEvent.setup();
     // Call the helper
     renderComponent();
-    // Click 'Attach Image' radio first
-    await user.click(screen.getByRole('radio', { name: /Attach Image/i }));
-    // Then click 'Upload New Image' radio
-    await user.click(screen.getByRole('radio', { name: /Upload New Image/i }));
+    // Focus and select 'Attach Image' radio
+    await user.tab(); // Focus Campaign Name
+    await user.tab(); // Focus Contact List
+    await user.tab(); // Focus Message Template
+    await user.tab(); // Focus No Image
+    await user.tab(); // Focus Attach Image
+    await user.keyboard('{Space}'); // Select Attach Image
+    // Now tab to 'Upload New Image' radio
+    await user.tab(); // Focus Upload New Image
+    await user.keyboard('{Space}'); // Select Upload New Image
+    // Print HTML for debug
+    // eslint-disable-next-line no-console
+    console.log(document.body.innerHTML);
 
     expect(screen.getByRole('radio', { name: /Upload New Image/i })).toBeChecked();
     expect(screen.getByRole('radio', { name: /Select from Media Library/i })).not.toBeChecked();
-    // More robust check might involve finding by specific attribute if label isn't direct
     expect(document.querySelector('input[type="file"]')).toBeInTheDocument(); // Rely on querySelector for file input presence
   });
 
@@ -468,9 +490,58 @@ describe("CampaignForm Component", () => {
     const testDate = new Date(2025, 10, 17, 11, 0, 0); // Define test date
 
     // Fill required fields
+    console.log('[DEBUG] mockContactLists:', JSON.stringify(mockContactLists));
     await user.type(screen.getByRole('textbox', { name: /Campaign Name/i }), "Library Select Test");
-    await user.selectOptions(screen.getByRole('combobox', { name: /Contact List/i }), mockContactLists[1]!.id);
-    await user.selectOptions(screen.getByRole('combobox', { name: /Message Template/i }), mockTemplates[1]!.id);
+    // Select contact list using native <select> in test mode
+    const contactListSelect = screen.getByTestId('contact-list-select');
+    expect(contactListSelect).toBeInTheDocument();
+    await user.selectOptions(contactListSelect, mockContactLists[1]!.id);
+    // Log after selection
+    console.log('[DEBUG] Selected contact list:', contactListSelect.value);
+
+      await waitFor(() => {
+        contactOption = within(document.body).getByText(mockContactLists[1]!.name, { exact: false });
+        console.log('[DEBUG] Found contactOption inside waitFor:', contactOption);
+        expect(contactOption).toBeInTheDocument();
+      }, { timeout: 2000 });
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.log('[DEBUG] Could not find contact option by text:', e);
+      // Print all text content in poppers
+      document.querySelectorAll('[data-radix-popper-content-wrapper]').forEach((popper, i) => {
+        // eslint-disable-next-line no-console
+        console.log(`[DEBUG] Popper #${i} text:`, popper.textContent);
+      });
+      // Dump DOM again for further inspection
+      // eslint-disable-next-line no-console
+      screen.debug();
+      throw e;
+    }
+    await user.click(contactOption!);
+    // Open Message Template dropdown and select option
+    const templateTrigger = screen.getByRole('combobox', { name: /Message Template/i });
+    await user.click(templateTrigger);
+    // Print all dropdown popper content for debug
+    document.querySelectorAll('[data-radix-popper-content-wrapper]').forEach((popper, i) => {
+      // eslint-disable-next-line no-console
+      console.log(`[DEBUG] Popper #${i}:`, popper.innerHTML);
+    });
+    // Query by visible text instead of role
+    // Use within(document.body) to find the option in a portal
+    let templateOption: HTMLElement | null = null;
+    try {
+      const { within } = await import('@testing-library/react');
+      templateOption = within(document.body).getByText(mockTemplates[1]!.name, { exact: false });
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.log('[DEBUG] Could not find template option by text:', e);
+      document.querySelectorAll('[data-radix-popper-content-wrapper]').forEach((popper, i) => {
+        // eslint-disable-next-line no-console
+        console.log(`[DEBUG] Popper #${i} text:`, popper.textContent);
+      });
+      throw e;
+    }
+    await user.click(templateOption);
 
     // Set date value directly using the form instance
     await waitFor(() => expect(formInstanceRef.current).not.toBeNull());

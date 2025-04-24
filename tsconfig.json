@@ -28,8 +28,9 @@
     "baseUrl": ".",
     "paths": {
       "~/*": ["./src/*"],
+      "@/*": ["./src/*"], // Add the general @/ alias
       "@/components/ui/*": ["./src/components/ui/*"],
-      "@/lib/*": ["./src/lib/*"] // Add alias for lib
+      "@/lib/*": ["./src/lib/*"]
     }
   },
   "include": [
