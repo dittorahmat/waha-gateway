@@ -1,40 +1,23 @@
-import React from 'react';
-import { vi } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { ConnectionStatus } from './ConnectionStatus';
+import { api } from '@/trpc/react'; // Import the mocked api
 
-// Mock api.useUtils before importing the component
+// Mock the tRPC hook
 vi.mock('@/trpc/react', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/trpc/react')>();
   return {
-    ...actual,
+    ...actual, // Use actual implementations for other hooks if needed
     api: {
-      ...actual.api,
-      useUtils: () => {
-        console.log('Mocked api.useUtils called');
-        return {};
-      },
       waha: {
-        ...actual.api?.waha,
-        getSessionState: {
-          useQuery: vi.fn(() => ({ data: undefined, isLoading: true, error: null, trpc: {} })),
+        getSessionState: { // Corrected procedure name
+          useQuery: vi.fn(), // Mock the useQuery hook
         },
-        startSession: {
-          useMutation: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
-        },
-        logoutSession: {
-          useMutation: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
-        },
-        requestPairingCode: {
-          useMutation: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
-        },
+        // Add mocks for other procedures if needed by the component
       },
     },
   };
 });
-
-import { render, screen } from '@testing-library/react';
-import { describe, it, expect, beforeEach } from 'vitest';
-import { ConnectionStatus } from './ConnectionStatus';
-import { api } from '@/trpc/react'; // Import the mocked api
 
 // Cast the mocked hook for type safety
 const mockedUseQuery = vi.mocked(api.waha.getSessionState.useQuery); // Corrected procedure name
@@ -54,7 +37,7 @@ describe('ConnectionStatus Component', () => {
     } as any); // Use 'any' for simplicity or import the actual complex type
 
     render(<ConnectionStatus />);
-    expect(screen.getByText(/Loading connection status/i)).toBeInTheDocument();
+    expect(screen.getByText(/Loading status.../i)).toBeInTheDocument();
   });
 
   it('should render error state', () => {
@@ -66,7 +49,7 @@ describe('ConnectionStatus Component', () => {
     } as any);
 
     render(<ConnectionStatus />);
-    expect(screen.getByText(/Waiting for connection data/i)).toBeInTheDocument();
+    expect(screen.getByText(/Error loading status/i)).toBeInTheDocument();
     // Optionally check for the specific error message if displayed
     // expect(screen.getByText(/Failed to fetch/i)).toBeInTheDocument();
   });
@@ -80,10 +63,9 @@ describe('ConnectionStatus Component', () => {
       error: null,
       trpc: {}, // Add required trpc property
     } as any);
-    console.log('Test QR code mockData:', mockData);
 
     render(<ConnectionStatus />);
-    expect(screen.getByText(/Your WhatsApp account is not connected/i)).toBeInTheDocument();
+    expect(screen.getByText(/Status: Disconnected/i)).toBeInTheDocument();
     expect(screen.queryByRole('img', { name: /qr code/i })).not.toBeInTheDocument();
   });
 
@@ -103,7 +85,7 @@ describe('ConnectionStatus Component', () => {
 
    it('should render scan QR code state with QR image', () => {
      const fakeQrCode = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='; // Example base64
-     const mockData = { status: 'SCAN_QR_CODE', qrCode: fakeQrCode, connected: true };
+     const mockData = { status: 'SCAN_QR_CODE', qrCode: fakeQrCode, connected: false };
      mockedUseQuery.mockReturnValue({
        data: mockData,
        isLoading: false,
@@ -112,12 +94,10 @@ describe('ConnectionStatus Component', () => {
      } as any);
 
      render(<ConnectionStatus />);
-    // Log the rendered DOM to validate what text is actually present
-    screen.debug();
-    expect(screen.getByText((content) => content.includes('Scan this QR code'))).toBeInTheDocument();
-    const qrImage = screen.getByAltText(/WhatsApp QR Code/i);
-    expect(qrImage).toBeInTheDocument();
-    expect(qrImage).toHaveAttribute('src', fakeQrCode);
+     expect(screen.getByText(/Status: Scan QR Code/i)).toBeInTheDocument();
+     const qrImage = screen.getByRole('img', { name: /qr code/i });
+     expect(qrImage).toBeInTheDocument();
+     expect(qrImage).toHaveAttribute('src', fakeQrCode);
    });
 
   // TODO: Add tests for other potential statuses if they exist

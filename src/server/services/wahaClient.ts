@@ -47,7 +47,6 @@ export class WahaApiClient {
         "X-Api-Key": this.apiKey,
       },
     });
-    console.log('[WahaApiClient] this.client after axios.create:', this.client);
 
     // Optional: Add interceptors for logging or more complex error handling
     this.client.interceptors.response.use(
@@ -115,7 +114,6 @@ export class WahaApiClient {
       }
 
       // Handle *other* errors (non-"already started" errors)
-      
       let errorMessage = `Failed to start WAHA session '${sessionName}'.`;
       let statusCode = 'Unknown';
       let responseData = null;
@@ -183,7 +181,6 @@ export class WahaApiClient {
 
       return { status, qr, code };
     } catch (error: unknown) {
-      
       if (axios.isAxiosError(error) && error.response?.status === 404) {
         console.log(`WAHA: Session '${sessionName}' not found.`);
         // Treat as effectively stopped or non-existent
@@ -211,6 +208,7 @@ export class WahaApiClient {
           // No responseType needed, default is JSON
         },
       );
+      console.log(`WAHA: Screenshot (QR) fetched for session '${sessionName}'.`);
 
       // Extract base64 data and prepend data URI scheme
       const base64 = response.data?.data;

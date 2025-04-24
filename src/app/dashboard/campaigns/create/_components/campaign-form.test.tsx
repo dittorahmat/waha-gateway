@@ -498,12 +498,8 @@ describe("CampaignForm Component", () => {
     await user.selectOptions(contactListSelect, mockContactLists[1]!.id);
     // Log after selection
     console.log('[DEBUG] Selected contact list:', contactListSelect.value);
-    console.log('[DEBUG] mockContactLists[1]:', mockContactLists[1]);
-    console.log('[DEBUG] document.body before waitFor:', document.body.innerHTML);
 
-    try {
       await waitFor(() => {
-        console.log('[DEBUG] document.body inside waitFor:', document.body.innerHTML);
         contactOption = within(document.body).getByText(mockContactLists[1]!.name, { exact: false });
         console.log('[DEBUG] Found contactOption inside waitFor:', contactOption);
         expect(contactOption).toBeInTheDocument();
