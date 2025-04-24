@@ -1,8 +1,51 @@
+/** @vitest-environment node */
+
+console.log('[TEST LOG] require.resolve ../../db.ts:', require.resolve('../../db.ts'));
+vi.mock('../../db.ts', () => {
+  console.log('[TEST LOG] vi.mock for ../../db.ts is set up');
+  const findFirst = vi.fn(async (...args) => {
+    console.log('[MOCK LOG] db.wahaSession.findFirst called with', args);
+    return undefined; // Will be configured per test
+  });
+  const create = vi.fn(async (...args) => {
+    console.log('[MOCK LOG] db.wahaSession.create called with', args);
+    return { id: 'mock-session-id', ...args[0] };
+  });
+  const update = vi.fn(async (...args) => {
+    console.log('[MOCK LOG] db.wahaSession.update called with', args);
+    return { id: 'mock-session-id', ...args[0] };
+  });
+  const del = vi.fn(async (...args) => {
+    console.log('[MOCK LOG] db.wahaSession.delete called with', args);
+    return { id: 'mock-session-id', ...args[0] };
+  });
+  const $transaction = vi.fn(async (cb) => {
+    console.log('[MOCK LOG] db.$transaction called');
+    return cb();
+  });
+  return {
+    db: {
+      wahaSession: { findFirst, create, update, delete: del },
+      $transaction,
+    },
+  };
+});
+
+console.log('[TEST LOG] After vi.mock for ../../db');
+console.log('[TEST LOG] require.resolve ../../db.ts after mock:', require.resolve('../../db.ts'));
+
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { TRPCError } from '@trpc/server';
-import { type Session } from 'next-auth';
+console.log('[TEST LOG] After importing vitest');
 
 import { wahaRouter } from './waha';
+console.log('[TEST LOG] After importing wahaRouter');
+import { TRPCError } from '@trpc/server';
+import { type Session } from 'next-auth';
+console.log('[TEST LOG] require.resolve ../../db.ts before import:', require.resolve('../../db.ts'));
+import { db } from '../../db.ts';
+
+import { wahaRouter } from './waha';
+import * as wahaClientModule from '~/server/services/wahaClient';
 import { type WahaApiClient, type WahaSessionState } from '~/server/services/wahaClient';
 import { type PrismaClient, type WahaSession, type User } from '@prisma/client';
 import type { DefaultArgs } from '@prisma/client/runtime/library';
@@ -24,13 +67,7 @@ const mockDb = {
 };
 
 // Mock WahaApiClient - Use simple vi.fn()
-const mockWahaClient = {
-  getSessionStatus: vi.fn(),
-  startSession: vi.fn(),
-  requestCode: vi.fn(),
-  logoutSession: vi.fn(),
-  sendTextMessage: vi.fn(),
-};
+
 
 
 // Mock the actual client constructor used in waha.ts
@@ -59,9 +96,18 @@ const createCaller = (session: Session | null) => {
   // Let's add a mock for the class constructor for now.
   vi.mock('~/server/services/wahaClient', async (importOriginal) => {
     const original = await importOriginal<typeof import('~/server/services/wahaClient')>();
+    // Define the mock client here to avoid TDZ/hoisting issues
+    const mockWahaClient = {
+      getSessionStatus: vi.fn(),
+      startSession: vi.fn(),
+      requestCode: vi.fn(),
+      logoutSession: vi.fn(),
+      sendTextMessage: vi.fn(),
+    };
     return {
       ...original, // Keep other exports like types
       WahaApiClient: vi.fn(() => mockWahaClient), // Mock constructor to return our mock instance
+      __mockWahaClient: mockWahaClient, // Expose for test access if needed
     };
   });
 
@@ -74,6 +120,8 @@ const createCaller = (session: Session | null) => {
 // --- Test Suite ---
 
 describe('wahaRouter', () => {
+  // Alias for easier access in tests
+  const mockWahaClient = wahaClientModule.__mockWahaClient;
   const userId = 'test-user-id-123';
   const userSession: Session = {
     user: { id: userId, name: 'Test User', email: 'test@example.com' },
@@ -516,15 +564,31 @@ describe('wahaRouter', () => {
     const validInput = { chatId: validChatId, text: validText };
 
     it('should send message via API if user owns session', async () => {
-      const caller = createCaller(userSession);
-      const dbSession = { id: 'session-id-13', userId: userId, sessionName: WAHA_DEFAULT_SESSION_NAME, status: 'WORKING' as const, createdAt: new Date(), updatedAt: new Date() };
-      const apiResponse = { id: 'waha-message-id-123' }; // Example API response
-
+      console.log('[TEST LOG] Setting up mockDb.wahaSession.findFirst for happy path test');
+      // Set up mocks BEFORE creating the caller
+      const dbSession = {
+        id: 'session-id-13',
+        userId: userId,
+        sessionName: WAHA_DEFAULT_SESSION_NAME,
+        status: 'WORKING' as const,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        // Add any other fields required by the router
+      };
       mockDb.wahaSession.findFirst.mockResolvedValue(dbSession); // User owns session
+      const apiResponse = { id: 'waha-message-id-123' }; // Example API response
       mockWahaClient.sendTextMessage.mockResolvedValue(apiResponse); // API send succeeds
-
+      // Log the mock return value for findFirst
+      const foundSession = await mockDb.wahaSession.findFirst({ where: { userId: userId, sessionName: WAHA_DEFAULT_SESSION_NAME } });
+      console.log('[TEST LOG] mockDb.wahaSession.findFirst returned:', foundSession);
+      // Log the db instance and its type in the test
+      console.log('[TEST LOG] db instance:', db, 'typeof:', typeof db, 'constructor:', db?.constructor?.name);
+      // Print the keys of db for further debugging
+      console.log('[TEST LOG] db keys:', Object.keys(db));
+      const caller = createCaller(userSession);
+      console.log('[TEST LOG] Calling sendTextMessage with input:', validInput);
       const result = await caller.sendTextMessage(validInput);
-
+      console.log('[TEST LOG] sendTextMessage result:', result);
       expect(result).toEqual({ success: true, messageId: apiResponse.id, result: apiResponse });
       expect(mockDb.wahaSession.findFirst).toHaveBeenCalledWith({
         where: { userId: userId, sessionName: WAHA_DEFAULT_SESSION_NAME },

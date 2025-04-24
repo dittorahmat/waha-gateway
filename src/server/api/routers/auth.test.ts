@@ -3,7 +3,7 @@ import { createUserWithHashedPassword } from './auth'; // Import the function to
 import { type User } from '@prisma/client';
 import { TRPCError } from '@trpc/server';
 import bcrypt from 'bcryptjs'; // Import bcrypt to check its mock
-import { db } from '~/server/db'; // Import the actual db instance (will be mocked)
+import { db } from '../../db'; // Import the actual db instance (will be mocked)
 
 // --- Mocking Section ---
 

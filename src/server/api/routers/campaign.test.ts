@@ -3,7 +3,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vites
 import { type AppRouter, appRouter } from "~/server/api/root";
 import { createCallerFactory } from "~/server/api/trpc";
 import { type Session } from "next-auth";
-import { db } from "~/server/db";
+import { db } from '../../db';
 import { type ContactList, type MessageTemplate, type MediaLibraryItem, type Campaign } from "@prisma/client"; // Removed CampaignStatus import
 import { TRPCError } from "@trpc/server";
 import { CampaignRunnerService } from "~/server/services/campaignRunner"; // Import the actual service

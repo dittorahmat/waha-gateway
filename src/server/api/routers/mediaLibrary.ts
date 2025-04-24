@@ -2,7 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
-import { db } from "~/server/db";
+import { db } from '../../db';
 
 export const mediaLibraryRouter = createTRPCRouter({
   list: protectedProcedure.query(async ({ ctx }) => {

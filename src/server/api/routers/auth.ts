@@ -4,7 +4,7 @@ import { TRPCError } from "@trpc/server";
 import { type PrismaClient } from "@prisma/client"; // Keep type import if needed elsewhere
 
 // Import the db instance directly
-import { db } from "~/server/db";
+import { db } from '../../db';
 import { createTRPCRouter, publicProcedure } from "~/server/api/trpc";
 
 // Define the input schema separately for reusability if needed

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
-import { db, schedulerService, wahaApiClient } from "~/server/db"; // Import db, scheduler, and waha client
+import { db, schedulerService, wahaApiClient } from '../../db'; // Import db, scheduler, and waha client
 import { CampaignRunnerService } from "~/server/services/campaignRunner"; // Import Campaign Runner Service
 
 // Zod schema for the create campaign input validation

@@ -3,7 +3,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { type AppRouter, appRouter } from "~/server/api/root";
 import { createCallerFactory } from "~/server/api/trpc";
 import { type Session } from "next-auth";
-import { db } from "~/server/db";
+import { db } from '../../db';
 import { type MessageTemplate } from "@prisma/client";
 
 // Mock session data - replace with realistic test user data setup if needed

@@ -3,7 +3,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { type AppRouter, appRouter } from "~/server/api/root";
 import { createCallerFactory } from "~/server/api/trpc";
 import { type Session } from "next-auth";
-import { db } from "~/server/db";
+import { db } from '../../db';
 import { type ContactList, type Contact } from "@prisma/client";
 
 // Helper to create base64 encoded CSV string

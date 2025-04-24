@@ -2,7 +2,9 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
-import { db } from "~/server/db";
+console.log('[ROUTER LOG] require.resolve ../../db.ts:', require.resolve('../../db.ts'));
+import { db } from '../../db.ts';
+console.log('[ROUTER LOG] db instance at router load:', db, 'typeof:', typeof db, 'constructor:', db?.constructor?.name, 'keys:', Object.keys(db));
 import {
   WahaApiClient,
   type WAHASessionStatus,
@@ -302,12 +304,24 @@ export const wahaRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      console.log('[DEBUG] sendTextMessage handler invoked. ctx.db === imported db?', ctx.db === db);
+      console.log('[DEBUG] ctx.db keys:', Object.keys(ctx.db));
+      console.log('[DEBUG] wahaClient instance constructor name:', wahaClient.constructor.name, 'instance:', wahaClient);
       const userId = ctx.session.user.id;
 
-      // Verify the user owns the 'default' session
-      const wahaSession = await db.wahaSession.findFirst({
+      // LOGGING: Compare imported db and ctx.db for diagnosing test/mock issues
+      console.log('[HANDLER LOG] typeof imported db:', typeof db, 'typeof ctx.db:', typeof ctx.db);
+      console.log('[HANDLER LOG] imported db === ctx.db?', db === ctx.db);
+      console.log('[HANDLER LOG] imported db keys:', Object.keys(db));
+      console.log('[HANDLER LOG] ctx.db keys:', ctx.db && Object.keys(ctx.db));
+      // Print function references for findFirst for both imported db and ctx.db
+      console.log('[HANDLER LOG] imported db.wahaSession.findFirst:', db.wahaSession.findFirst);
+      console.log('[HANDLER LOG] ctx.db.wahaSession.findFirst:', ctx.db && ctx.db.wahaSession && ctx.db.wahaSession.findFirst);
+      // Refactored: Use ctx.db for all DB operations so tests can inject mocks
+      const wahaSession = await ctx.db.wahaSession.findFirst({
         where: { userId: userId, sessionName: WAHA_DEFAULT_SESSION_NAME },
       });
+      console.log('[HANDLER LOG] ctx.db.wahaSession.findFirst returned:', wahaSession, 'ctx.db:', ctx.db);
 
       if (!wahaSession) {
         throw new TRPCError({

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
-import { db } from "~/server/db";
+import { db } from '../../db';
 import { parseContactsCSV } from "~/utils/csvParser";
 
 export const contactListRouter = createTRPCRouter({
