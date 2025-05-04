@@ -1,10 +1,9 @@
 "use client";
 
-console.log('[DEBUG] campaign-form.tsx loaded');
-import React, { useState, useEffect, useCallback } from "react"; // Added useCallback
+import React, { useState, useEffect, useCallback } from "react"; 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
-import type { UseFormReturn } from "react-hook-form"; // Import type separately
+import type { UseFormReturn } from "react-hook-form"; 
 import { z } from "zod";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -52,32 +51,35 @@ const formSchema = z.object({
 
 export type CampaignFormValues = z.infer<typeof formSchema>;
 
-// Define the type for the ref content, including the onSubmit callback
-type FormRefType = (UseFormReturn<CampaignFormValues> & { onSubmitCallback?: (values: CampaignFormValues) => Promise<void> }) | null;
+// Define the type for the ref content, including the onSubmit callback and null
+type FormRefType = (Partial<UseFormReturn<CampaignFormValues>> & {
+  submitCallback?: (values: CampaignFormValues) => Promise<void>;
+}) | null;
 
 // Add prop type for the optional ref
 interface CampaignFormProps {
   formInstanceRef?: React.MutableRefObject<FormRefType>;
 }
 
-// Utility to detect test environment
-function isTestEnv() {
-  return typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'test';
-}
-
 export default function CampaignForm({ formInstanceRef }: CampaignFormProps = {}) {
   const router = useRouter();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [attachImageState, setAttachImageState] = useState<boolean>(false);
-  const [imageSourceState, setImageSourceState] = useState<'upload' | 'library' | undefined>(undefined);
-  console.log('[DEBUG] Render state', { attachImageState, imageSourceState });
-  console.log('[DEBUG] CampaignForm rendered');
+  const [imageSourceState, setImageSourceState] = useState<"upload" | "library" | null>(null);
 
   const contactListsQuery = api.contactList.list.useQuery();
-  console.log('[DEBUG] contactListsQuery.data:', contactListsQuery.data);
-  console.log('[DEBUG] contactListsQuery full:', contactListsQuery);
   const templatesQuery = api.template.list.useQuery();
-  const utils = api.useUtils(); // Define utils at the component level
+  const utils = api.useUtils(); 
+
+  const createMutation = api.campaign.create.useMutation({
+    onSuccess: (data) => {
+      toast.success(`Campaign "${data.name}" scheduled successfully!`);
+      router.push('/dashboard/campaigns');
+    },
+    onError: (error) => {
+      toast.error(`Failed to schedule campaign: ${error.message}`);
+    },
+  });
 
   const createCampaign = api.campaign.create.useMutation({
     onSuccess: (data) => {
@@ -90,43 +92,46 @@ export default function CampaignForm({ formInstanceRef }: CampaignFormProps = {}
   });
 
   const uploadMedia = api.mediaLibrary.upload.useMutation({
-     onSuccess: (data) => { // data is just { id: string }
-        toast.success(`Image uploaded successfully! (ID: ${data.id})`); // Use generic message + ID
-        // Invalidate media library list query to update the select dropdown
-        void utils.mediaLibrary.list.invalidate(); // Now utils is accessible
-     },
-     onError: (error) => {
-       form.setError("mediaLibraryItemId", { type: "manual", message: `Image upload failed: ${error.message}` });
-       toast.error(`Image upload failed: ${error.message}`);
-     },
+    onSuccess: (data) => { 
+      toast.success(`Image uploaded successfully! (ID: ${data.id})`); 
+      void utils.mediaLibrary.list.invalidate(); 
+    },
+    onError: (error) => {
+      form.setError("mediaLibraryItemId", { type: "manual", message: `Image upload failed: ${error.message}` });
+      toast.error(`Image upload failed: ${error.message}`);
+    },
   });
 
   const form = useForm<CampaignFormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       name: "", contactListId: "", messageTemplateId: "",
-      defaultNameValue: "Customer", scheduledAt: undefined, mediaLibraryItemId: undefined,
+      defaultNameValue: "Customer", scheduledAt: new Date(), mediaLibraryItemId: undefined,
     },
   });
+
+  const watched = form.watch();
+
+  React.useEffect(() => {
+    if (formInstanceRef) {
+      formInstanceRef.current = form;
+    }
+  }, [formInstanceRef, form]);
 
   const fileToBase64 = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.readAsDataURL(file);
       reader.onload = () => {
         const base64String = (reader.result as string).split(',')[1];
         if (base64String) resolve(base64String);
         else reject(new Error("Failed to convert file to base64"));
       };
       reader.onerror = (error) => reject(error);
+      reader.readAsDataURL(file);
     });
   };
 
-  // Define onSubmit logic using useCallback to memoize it
   const onSubmit = useCallback(async (values: CampaignFormValues) => {
-    console.log('[DEBUG] onSubmit called. Values:', values);
-    console.log('[DEBUG] attachImageState:', attachImageState, 'imageSourceState:', imageSourceState, 'selectedFile:', selectedFile);
-
     let finalMediaItemId: string | undefined = values.mediaLibraryItemId;
 
     try {
@@ -139,62 +144,59 @@ export default function CampaignForm({ formInstanceRef }: CampaignFormProps = {}
         try {
           fileContentBase64 = await fileToBase64(selectedFile);
         } catch (error) {
-           form.setError("mediaLibraryItemId", { type: "manual", message: "Failed to read file for upload." });
-           console.error("File reading error:", error);
-           return;
+          form.setError("mediaLibraryItemId", { type: "manual", message: "Failed to read file for upload." });
+          return;
         }
         const uploadResult = await uploadMedia.mutateAsync({
           filename: selectedFile.name, fileContentBase64, mimeType: selectedFile.type,
         });
         if (!uploadResult?.id) {
-           form.setError("mediaLibraryItemId", { type: "manual", message: "Upload completed but failed to return an ID." });
-           return;
+          form.setError("mediaLibraryItemId", { type: "manual", message: "Upload completed but failed to return an ID." });
+          return;
         }
         finalMediaItemId = uploadResult.id;
       } else if (!attachImageState) {
-         finalMediaItemId = undefined;
+        finalMediaItemId = undefined;
       }
 
       const campaignData = { ...values, mediaLibraryItemId: finalMediaItemId };
-      await createCampaign.mutateAsync(campaignData);
+      await createCampaign.mutateAsync(campaignData, {});
 
     } catch (error) {
-      console.error("Submission error:", error);
       if (uploadMedia.status !== 'error' && createCampaign.status !== 'error') {
-         toast.error("An unexpected error occurred during submission.");
+        toast.error("An unexpected error occurred during submission.");
       }
     }
   }, [
-      attachImageState, imageSourceState, selectedFile, form, // form methods like setError
-      uploadMedia, createCampaign, // mutations
-      // fileToBase64 is stable, no need to include
-  ]); // Add dependencies for useCallback
+    attachImageState, imageSourceState, selectedFile, form, 
+    uploadMedia, createCampaign, 
+  ]); 
 
-  // Expose the form instance AND the onSubmit callback via the ref
+  const onFormInvalid = (errors: FieldErrors<CampaignFormValues>) => {
+    toast.error("Please correct the errors in the form.");
+  };
+
   useEffect(() => {
     if (formInstanceRef) {
-      formInstanceRef.current = {
-        ...form,
-        onSubmitCallback: onSubmit // Attach the memoized callback
-      };
+      formInstanceRef.current = form; 
+      formInstanceRef.current.submitCallback = onSubmit; 
     }
     return () => {
       if (formInstanceRef) {
         formInstanceRef.current = null;
       }
     };
-  }, [form, formInstanceRef, onSubmit]); // Include onSubmit in dependencies
+  }, [form, formInstanceRef, onSubmit]);
 
   const isSubmitting = form.formState.isSubmitting || createCampaign.isPending || uploadMedia.isPending;
 
   return (
     <Form {...form}>
-      {/* Use react-hook-form's handleSubmit for normal operation */}
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+      <form onSubmit={form.handleSubmit(onSubmit, onFormInvalid)} className="space-y-8">
         {/* Campaign Name */}
         <FormField control={form.control} name="name" render={({ field }) => (
             <FormItem>
-              <FormLabel>Campaign Name</FormLabel> {/* Use FormLabel */}
+              <FormLabel>Campaign Name</FormLabel> 
               <FormControl><Input placeholder="e.g., Summer Sale Promotion" {...field} /></FormControl>
               <FormMessage />
             </FormItem>
@@ -203,39 +205,23 @@ export default function CampaignForm({ formInstanceRef }: CampaignFormProps = {}
         {/* Contact List Select */}
          <FormField control={form.control} name="contactListId" render={({ field }) => (
             <FormItem>
-              <FormLabel>Contact List</FormLabel> {/* Use FormLabel */}
-              {isTestEnv() ? (
-                (() => {console.log('[DEBUG] Rendering native <select> for test env'); return null; })() || (
-                  <select
-                    data-testid="contact-list-select"
-                    value={field.value}
-                    onChange={e => field.onChange(e.target.value)}
-                    disabled={contactListsQuery.isLoading}
-                  >
-                    <option value="">Select a contact list...</option>
-                    {contactListsQuery.data?.map((list) => (
-                      <option key={list.id} value={list.id}>{list.name} ({list.contactCount} contacts)</option>
-                    ))}
-                  </select>
-                )
-              ) : (
-                <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value ?? ""} disabled={contactListsQuery.isLoading}>
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select a contact list..." />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    {console.log('[DEBUG] <SelectContent> rendered. isLoading:', contactListsQuery.isLoading, 'isSuccess:', contactListsQuery.isSuccess, 'data:', contactListsQuery.data)}
-                    {contactListsQuery.isLoading && <SelectItem value="loading" disabled>Loading...</SelectItem>}
-                    {contactListsQuery.data?.map((list) => {
-                      console.log('[DEBUG] Rendering SelectItem for:', list);
-                      return (<SelectItem key={list.id} value={list.id}>{list.name} ({list.contactCount} contacts)</SelectItem>);
-                    })}
-                    {contactListsQuery.isSuccess && contactListsQuery.data?.length === 0 && (<SelectItem value="no-lists" disabled>No contact lists found.</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              )}
+              <FormLabel>Contact List</FormLabel>
+              <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value ?? ""} disabled={contactListsQuery.isLoading}>
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a contact list..." />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  {contactListsQuery.isLoading && <SelectItem value="loading" disabled>Loading...</SelectItem>}
+                  {contactListsQuery.data?.map((list) => (
+                    <SelectItem key={list.id} value={list.id}>{list.name} ({list.contactCount} contacts)</SelectItem>
+                  ))}
+                  {contactListsQuery.isSuccess && contactListsQuery.data?.length === 0 && (
+                    <SelectItem value="no-lists" disabled>No contact lists found.</SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
               <FormDescription>The list of contacts to send this campaign to.</FormDescription>
               <FormMessage />
             </FormItem>
@@ -244,19 +230,23 @@ export default function CampaignForm({ formInstanceRef }: CampaignFormProps = {}
         {/* Message Template Select */}
         <FormField control={form.control} name="messageTemplateId" render={({ field }) => (
             <FormItem>
-              <FormLabel>Message Template</FormLabel> {/* Use FormLabel */}
-               <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value ?? ""} disabled={templatesQuery.isLoading}>
-                 <FormControl>
-                   <SelectTrigger>
-                     <SelectValue placeholder="Select a message template..." />
-                   </SelectTrigger>
-                 </FormControl>
-                 <SelectContent>
-                   {templatesQuery.isLoading && <SelectItem value="loading" disabled>Loading...</SelectItem>}
-                   {templatesQuery.data?.map((template) => (<SelectItem key={template.id} value={template.id}>{template.name}</SelectItem>))}
-                   {templatesQuery.isSuccess && templatesQuery.data?.length === 0 && (<SelectItem value="no-templates" disabled>No templates found.</SelectItem>)}
-                 </SelectContent>
-               </Select>
+              <FormLabel>Message Template</FormLabel>
+              <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value ?? ""} disabled={templatesQuery.isLoading}>
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a message template..." />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  {templatesQuery.isLoading && <SelectItem value="loading" disabled>Loading...</SelectItem>}
+                  {templatesQuery.data?.map((template) => (
+                    <SelectItem key={template.id} value={template.id}>{template.name}</SelectItem>
+                  ))}
+                  {templatesQuery.isSuccess && templatesQuery.data?.length === 0 && (
+                    <SelectItem value="no-templates" disabled>No templates found.</SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
               <FormDescription>The message content to send. Use <code>{`{Name}`}</code> for personalization.</FormDescription>
               <FormMessage />
             </FormItem>
@@ -265,9 +255,9 @@ export default function CampaignForm({ formInstanceRef }: CampaignFormProps = {}
         {/* Image Attachment Section */}
         <div className="space-y-3 rounded-md border p-4">
            <FormLabel htmlFor="attach-image">Attach Image? (Optional)</FormLabel>
-           <RadioGroup onValueChange={(value: string) => { const shouldAttach = value === 'true'; console.log('[DEBUG] Attach Image radio onValueChange:', value, '->', shouldAttach); setAttachImageState(shouldAttach); if (!shouldAttach) { setImageSourceState(undefined); setSelectedFile(null); form.setValue("mediaLibraryItemId", undefined); } }} defaultValue={String(attachImageState)} className="flex flex-col space-y-1">
+           <RadioGroup onValueChange={(value: string) => { const shouldAttach = value === 'true'; setAttachImageState(shouldAttach); if (!shouldAttach) { setImageSourceState(undefined); setSelectedFile(null); form.setValue("mediaLibraryItemId", undefined); } }} defaultValue={String(attachImageState)} className="flex flex-col space-y-1">
              <FormItem className="flex items-center space-x-3 space-y-0"><FormControl><RadioGroupItem value="false" id="no-image" /></FormControl><FormLabel className="font-normal" htmlFor="no-image">No Image</FormLabel></FormItem>
-             <FormItem className="flex items-center space-x-3 space-y-0"><FormControl><RadioGroupItem value="true" id="attach-image" onClick={() => console.log('[DEBUG] Attach Image RadioGroupItem clicked')} /></FormControl><FormLabel className="font-normal" htmlFor="attach-image" onClick={() => console.log('[DEBUG] Attach Image FormLabel clicked')}>Attach Image</FormLabel></FormItem>
+             <FormItem className="flex items-center space-x-3 space-y-0"><FormControl><RadioGroupItem value="true" id="attach-image" /></FormControl><FormLabel className="font-normal" htmlFor="attach-image">Attach Image</FormLabel></FormItem>
            </RadioGroup>
          </div>
 
@@ -275,8 +265,8 @@ export default function CampaignForm({ formInstanceRef }: CampaignFormProps = {}
         {attachImageState && (
           <div className="space-y-3 rounded-md border p-4">
             <FormLabel htmlFor="image-source">Image Source</FormLabel>
-            <RadioGroup onValueChange={(value: 'upload' | 'library') => { console.log('[DEBUG] Image Source radio onValueChange:', value); setImageSourceState(value); form.setValue("mediaLibraryItemId", undefined); setSelectedFile(null); }} defaultValue={imageSourceState} className="flex flex-col space-y-1">
-              <FormItem className="flex items-center space-x-3 space-y-0"><FormControl><RadioGroupItem value="upload" id="upload-image" onClick={() => console.log('[DEBUG] Upload New Image RadioGroupItem clicked')} /></FormControl><FormLabel className="font-normal" htmlFor="upload-image" onClick={() => console.log('[DEBUG] Upload New Image FormLabel clicked')}>Upload New Image</FormLabel></FormItem>
+            <RadioGroup onValueChange={(value: 'upload' | 'library') => { setImageSourceState(value); form.setValue("mediaLibraryItemId", undefined); setSelectedFile(null); }} defaultValue={imageSourceState} className="flex flex-col space-y-1">
+              <FormItem className="flex items-center space-x-3 space-y-0"><FormControl><RadioGroupItem value="upload" id="upload-image" /></FormControl><FormLabel className="font-normal" htmlFor="upload-image">Upload New Image</FormLabel></FormItem>
               <FormItem className="flex items-center space-x-3 space-y-0"><FormControl><RadioGroupItem value="library" id="select-from-library" /></FormControl><FormLabel className="font-normal" htmlFor="select-from-library">Select from Media Library</FormLabel></FormItem>
             </RadioGroup>
           </div>
@@ -284,12 +274,15 @@ export default function CampaignForm({ formInstanceRef }: CampaignFormProps = {}
 
         {/* Conditional File Upload Input */}
         {attachImageState && imageSourceState === "upload" && (
-         (() => { console.log('[DEBUG] Rendering file input: attachImageState', attachImageState, 'imageSourceState', imageSourceState); return null; })(),
          <FormField control={form.control} name="mediaLibraryItemId" render={() => (
             <FormItem>
               <FormLabel htmlFor="upload-image-file">Upload Image File</FormLabel>
               <FormControl>
-                 <Input type="file" accept="image/jpeg, image/png, image/gif" id="upload-image-file" onChange={(e) => { const file = e.target.files?.[0] ?? null; console.log('[DEBUG] File input onChange. Selected file:', file); setSelectedFile(file); if (file) form.clearErrors("mediaLibraryItemId"); }} />
+                 <Input type="file" accept="image/jpeg, image/png, image/gif" id="upload-image-file" onChange={(e) => {
+                  const file = e.target.files?.[0] ?? null;
+                  setSelectedFile(file);
+                  if (file) form.clearErrors("mediaLibraryItemId");
+                }} />
               </FormControl>
                  {selectedFile && <FormDescription>Selected: {selectedFile.name}</FormDescription>}
                 <FormMessage />
@@ -305,7 +298,7 @@ export default function CampaignForm({ formInstanceRef }: CampaignFormProps = {}
         {/* Default Name Value Input */}
         <FormField control={form.control} name="defaultNameValue" render={({ field }) => (
             <FormItem>
-              <FormLabel>Default Name Value</FormLabel> {/* Use FormLabel */}
+              <FormLabel>Default Name Value</FormLabel> 
               <FormControl><Input placeholder="e.g., Friend, Valued Customer" {...field} /></FormControl>
               <FormDescription>This value will be used if a contact's name is missing when using the <code>{`{Name}`}</code> placeholder in the template.</FormDescription>
               <FormMessage />
@@ -317,7 +310,7 @@ export default function CampaignForm({ formInstanceRef }: CampaignFormProps = {}
             <FormItem className="flex flex-col">
               <FormLabel>Scheduled Time</FormLabel>
               <FormControl>
-                <DateTimePicker data-testid="scheduledAt" onChange={field.onChange} value={field.value} minDate={new Date()} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm [&>div>input]:border-none [&>div>input]:bg-transparent [&>div>input]:outline-none [&>div>button]:text-foreground" />
+                <DateTimePicker data-testid="scheduledAt" onChange={value => { field.onChange(value); }} value={field.value} minDate={new Date()} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm [&>div>input]:border-none [&>div>input]:bg-transparent [&>div>input]:outline-none [&>div>button]:text-foreground" />
               </FormControl>
               <FormDescription>Select the date and time when the campaign should start sending messages.</FormDescription>
               <FormMessage />

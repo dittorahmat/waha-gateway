@@ -24,7 +24,13 @@ const mockData: MockData[] = [
 describe('DataTable Component', () => {
   it('should render column headers and data rows correctly', () => {
     // Provide a default pageCount to satisfy the required prop
-    render(<DataTable columns={mockColumns} data={mockData} pageCount={1} />);
+    render(<DataTable
+      columns={mockColumns}
+      data={mockData}
+      pageCount={1}
+      pagination={{ pageIndex: 0, pageSize: mockData.length }}
+      onPaginationChange={() => {}}
+    />);
 
     // Check for headers
     expect(screen.getByRole('columnheader', { name: /ID/i })).toBeInTheDocument();
@@ -41,7 +47,13 @@ describe('DataTable Component', () => {
   });
 
   it('should render "No results." when data is empty', () => {
-    render(<DataTable columns={mockColumns} data={[]} pageCount={0} />);
+    render(<DataTable
+      columns={mockColumns}
+      data={[]}
+      pageCount={0}
+      pagination={{ pageIndex: 0, pageSize: 0 }}
+      onPaginationChange={() => {}}
+    />);
 
     // Check for the "No results" message
     // The message is inside a cell that spans all columns
