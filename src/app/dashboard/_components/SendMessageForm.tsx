@@ -54,6 +54,7 @@ export function SendMessageForm() {
       form.reset(); // Clear the form on success
     },
     onError: (error) => {
+      console.error("Failed to send message:", error); // Log the full error object
       toast.error(`Failed to send message: ${error.message}`);
     },
   });

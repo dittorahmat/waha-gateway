@@ -292,8 +292,8 @@ export class WahaApiClient {
   ): Promise<any> {
     try {
       const response = await this.client.post(
-        `/api/${sessionName}/sendText`, // Endpoint often includes session name
-        { chatId, text },
+        `/api/sendText`, // Corrected endpoint based on user feedback
+        { chatId, text, session: sessionName }, // Include sessionName in the body as per common API patterns
       );
       console.log(
         `WAHA: Text message sent via session '${sessionName}' to ${chatId}.`,
@@ -304,7 +304,8 @@ export class WahaApiClient {
         `WAHA: Failed to send text message via session '${sessionName}':`,
         error,
       );
-      throw new Error("Failed to send text message via WAHA.");
+      // Re-throw the original error to preserve context
+      throw error;
     }
   }
 
@@ -335,8 +336,8 @@ export class WahaApiClient {
         caption,
       };
       const response = await this.client.post(
-        `/api/${sessionName}/sendImage`, // Endpoint often includes session name
-        payload,
+        `/api/sendImage`, // Corrected endpoint based on user feedback
+        { ...payload, session: sessionName }, // Include sessionName in the body
       );
       console.log(
         `WAHA: Image message sent via session '${sessionName}' to ${chatId}.`,

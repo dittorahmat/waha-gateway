@@ -371,7 +371,8 @@ export const wahaRouter = createTRPCRouter({
       } catch (error) {
         console.error(
           `Failed to send text message via session ${WAHA_DEFAULT_SESSION_NAME} for user ${userId} to ${input.chatId}:`,
-          error,
+          error, // Log the error object
+          `Error details: ${JSON.stringify(error, Object.getOwnPropertyNames(error))}` // Attempt to log more details
         );
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
