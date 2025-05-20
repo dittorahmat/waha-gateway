@@ -1,3 +1,5 @@
+import type { WahaFile } from "./wahaClient";
+import axios from 'axios'; // Added axios import
 import type { Campaign, ContactList, MessageTemplate, MediaLibraryItem, Contact } from '@prisma/client';
 import { PrismaClient } from '@prisma/client';
 import { TRPCError } from '@trpc/server'; // Keep for potential future use
@@ -8,6 +10,10 @@ import { env } from '~/env'; // Import env
 // Utility functions for delay
 const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
 const randomInt = (min: number, max: number): number => Math.floor(Math.random() * (max - min + 1)) + min;
+
+// Add constants for retry mechanism
+const MAX_STATUS_CHECK_RETRIES = 5; // Maximum number of retries
+const STATUS_CHECK_RETRY_DELAY_MS = 5000; // Delay between retries in milliseconds
 
 // Define the type for PrismaClient or TransactionClient
 // This allows the service to work within a transaction if needed
@@ -140,32 +146,38 @@ export class CampaignRunnerService {
                 const personalizedText = campaign.messageTemplate.textContent.replace(/{Name}/gi, nameToUse);
 
                 // Format chatId for WAHA
-                const chatId = `${phoneNumber}@c.us`; // Confirmed format
+                // Format chatId for WAHA, ensuring no double @c.us
+                const cleanedPhoneNumber = phoneNumber.endsWith('@c.us') ? phoneNumber.slice(0, -'@c.us'.length) : phoneNumber;
+                const chatId = `${cleanedPhoneNumber}@c.us`; // Correct format
 
-                // --- BEGIN WAHA SESSION STATUS CHECK ---
-                try {
-                    console.log(`[Campaign ${campaignId} | Contact ${contactNumber}/${contacts.length}] Checking WAHA session status for ${sessionName}...`);
-                    const sessionState = await this.wahaApiClient.getSessionStatus(sessionName);
-                    const currentStatus: WAHASessionStatus = sessionState.status;
+                // --- BEGIN WAHA SESSION STATUS CHECK WITH RETRY ---
+                let sessionIsWorking = false;
+                for (let retryAttempt = 0; retryAttempt < MAX_STATUS_CHECK_RETRIES; retryAttempt++) {
+                    try {
+                        console.log(`[Campaign ${campaignId} | Contact ${contactNumber}/${contacts.length}] Checking WAHA session status for ${sessionName} (Attempt ${retryAttempt + 1}/${MAX_STATUS_CHECK_RETRIES})...`);
+                        const sessionState = await this.wahaApiClient.getSessionStatus(sessionName);
+                        const currentStatus: WAHASessionStatus = sessionState.status;
 
-                    if (currentStatus !== "WORKING") {
-                        console.warn(`[Campaign ${campaignId}] WAHA session '${sessionName}' status is '${currentStatus}', not 'WORKING'. Pausing campaign.`);
-                        // Update status and save the index of the contact we were ABOUT TO process.
-                        // This ensures resume starts correctly at this contact.
-                        await this.db.campaign.update({
-                            where: { id: campaignId },
-                            data: {
-                                status: 'Paused',
-                                lastProcessedContactIndex: i
-                            },
-                        });
-                        break; // Exit the contact processing loop
+                        if (currentStatus === "WORKING") {
+                            console.log(`[Campaign ${campaignId} | Contact ${contactNumber}/${contacts.length}] WAHA session '${sessionName}' is WORKING. Proceeding.`);
+                            sessionIsWorking = true;
+                            break; // Exit retry loop if working
+                        } else {
+                            console.warn(`[Campaign ${campaignId} | Contact ${contactNumber}/${contacts.length}] WAHA session '${sessionName}' status is '${currentStatus}', not 'WORKING'. Retrying in ${STATUS_CHECK_RETRY_DELAY_MS}ms.`);
+                            await sleep(STATUS_CHECK_RETRY_DELAY_MS); // Wait before retrying
+                        }
+                    } catch (statusCheckError) {
+                        console.error(`[Campaign ${campaignId} | Contact ${contactNumber}/${contacts.length}] ERROR checking WAHA session status for '${sessionName}' (Attempt ${retryAttempt + 1}/${MAX_STATUS_CHECK_RETRIES}). Error:`, statusCheckError);
+                        if (retryAttempt < MAX_STATUS_CHECK_RETRIES - 1) {
+                            console.log(`[Campaign ${campaignId} | Contact ${contactNumber}/${contacts.length}] Retrying status check in ${STATUS_CHECK_RETRY_DELAY_MS}ms.`);
+                            await sleep(STATUS_CHECK_RETRY_DELAY_MS); // Wait before retrying
+                        }
                     }
-                    console.log(`[Campaign ${campaignId} | Contact ${contactNumber}/${contacts.length}] WAHA session '${sessionName}' is WORKING. Proceeding.`);
+                }
 
-                } catch (statusCheckError) {
-                    console.error(`[Campaign ${campaignId}] CRITICAL ERROR checking WAHA session status for '${sessionName}'. Pausing campaign. Error:`, statusCheckError);
-                    // Update status and save the index of the contact we were ABOUT TO process before pausing due to error.
+                if (!sessionIsWorking) {
+                    console.warn(`[Campaign ${campaignId}] WAHA session '${sessionName}' did not become 'WORKING' after ${MAX_STATUS_CHECK_RETRIES} attempts. Pausing campaign.`);
+                    // Update status and save the index of the contact we were ABOUT TO process.
                     // This ensures resume starts correctly at this contact.
                     await this.db.campaign.update({
                         where: { id: campaignId },
@@ -176,7 +188,7 @@ export class CampaignRunnerService {
                     });
                     break; // Exit the contact processing loop
                 }
-                // --- END WAHA SESSION STATUS CHECK ---
+                // --- END WAHA SESSION STATUS CHECK WITH RETRY ---
 
 
                 // --- BEGIN SEND ATTEMPT BLOCK ---
@@ -205,7 +217,7 @@ export class CampaignRunnerService {
 
 
                         // Call WAHA API for image
-                        await this.wahaApiClient.sendImageMessage(
+                        const response = await this.wahaApiClient.sendImageMessage( // Capture response
                             sessionName,
                             chatId,
                             {
@@ -216,6 +228,7 @@ export class CampaignRunnerService {
                             personalizedText // Use personalized text as caption
                         );
                         console.log(`[Campaign ${campaignId} | Contact ${contactNumber}] Image send API call successful for ${chatId}.`);
+                        console.log(`[Campaign ${campaignId} | Contact ${contactNumber}] API call successful. Response data:`, response.data); // Added detailed logging
                         // Increment sent count on success
                         await this.db.campaign.update({
                             where: { id: campaignId },
@@ -225,12 +238,13 @@ export class CampaignRunnerService {
                     } else {
                         // --- Send Text Only ---
                         console.log(`[Campaign ${campaignId} | Contact ${contactNumber}/${contacts.length}] Attempting to send text to ${chatId}`);
-                        await this.wahaApiClient.sendTextMessage(
+                        const response = await this.wahaApiClient.sendTextMessage( // Capture response
                             sessionName,
                             chatId,
                             personalizedText
                         );
                          console.log(`[Campaign ${campaignId} | Contact ${contactNumber}] Text send API call successful for ${chatId}.`);
+                         console.log(`[Campaign ${campaignId} | Contact ${contactNumber}] API call successful. Response data:`, response.data); // Added detailed logging
                         // Increment sent count on success
                         await this.db.campaign.update({
                             where: { id: campaignId },
@@ -240,6 +254,17 @@ export class CampaignRunnerService {
                 } catch (error) {
                     // --- Handle API Call Failure ---
                     console.error(`[Campaign ${campaignId} | Contact ${contactNumber}] Failed to send message to ${chatId}:`, error);
+                    // Add detailed error logging
+                    if (axios.isAxiosError(error)) {
+                        console.error(`[Campaign ${campaignId} | Contact ${contactNumber}] Axios Error Details:`, {
+                            status: error.response?.status,
+                            data: error.response?.data,
+                            message: error.message,
+                            config: error.config,
+                        });
+                    } else if (error instanceof Error) {
+                        console.error(`[Campaign ${campaignId} | Contact ${contactNumber}] Generic Error Details:`, error);
+                    }
                     // Increment failed count on error
                     await this.db.campaign.update({
                         where: { id: campaignId },

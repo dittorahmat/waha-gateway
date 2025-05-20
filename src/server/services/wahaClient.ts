@@ -296,14 +296,71 @@ export class WahaApiClient {
         { chatId, text, session: sessionName }, // Include sessionName in the body as per common API patterns
       );
       console.log(
-        `WAHA: Text message sent via session '${sessionName}' to ${chatId}.`,
+        `WAHA: Text message sent via session '${sessionName}' to ${chatId}. Response Data:`, // Added response data logging
+        response.data
       );
       return response.data;
-    } catch (error) {
+    } catch (error: unknown) { // Use unknown for better type safety
       console.error(
-        `WAHA: Failed to send text message via session '${sessionName}':`,
+        `WAHA: Failed to send text message via session '${sessionName}' to ${chatId}:`, // Added chatId to log
         error,
       );
+      // Add detailed error logging
+      if (axios.isAxiosError(error)) {
+          console.error(`WAHA: Axios Error Details for text message:`, {
+              status: error.response?.status,
+              data: error.response?.data,
+              message: error.message,
+              config: error.config,
+          });
+      } else if (error instanceof Error) {
+          console.error(`WAHA: Generic Error Details for text message:`, error);
+      }
+      // Re-throw the original error to preserve context
+      throw error;
+    }
+  }
+/**
+   * Sends a text message to a group.
+   * @param sessionName Name of the session.
+   * @param groupChatId Recipient group chat ID (e.g., '1234567890@g.us').
+   * @param text The message text.
+   * @returns API response data.
+   */
+  async sendGroupTextMessage(
+    sessionName: string,
+    groupChatId: string,
+    text: string,
+  ): Promise<any> {
+    try {
+      const response = await this.client.post(
+        `/api/messages/send-group-text`, // Updated endpoint to match WAHA API standards
+        { chatId: groupChatId, text, session: sessionName }, // Use chatId key for consistency with WAHA API
+      );
+      console.log(
+        `WAHA: Text message sent to group ${groupChatId} via session '${sessionName}'. Response Data:`,
+        response.data
+      );
+      return response.data;
+    } catch (error: unknown) {
+      console.error(`WAHA: Failed to send text to group via session '${sessionName}':`, error);
+      if (axios.isAxiosError(error)) {
+        console.error(`WAHA: Axios Error Details for group text message:`, {
+          status: error.response?.status,
+          data: error.response?.data,
+        });
+      }
+      // Add detailed error logging
+      if (axios.isAxiosError(error)) {
+        console.error(`WAHA: Axios Error Details for group text message:`, {
+          status: error.response?.status,
+          data: error.response?.data,
+          message: error.message,
+          config: error.config,
+        });
+      } else if (error instanceof Error) {
+        console.error(`WAHA: Generic Error Details for group text message:`, error);
+      }
       // Re-throw the original error to preserve context
       throw error;
     }
@@ -331,7 +388,7 @@ export class WahaApiClient {
         file: {
           mimetype: file.mimeType,
           filename: file.filename,
-          data: file.base64, // Assuming WAHA expects base64 data directly
+          base64: file.base64, // Use correct key based on WAHA API requirements
         },
         caption,
       };
@@ -340,15 +397,27 @@ export class WahaApiClient {
         { ...payload, session: sessionName }, // Include sessionName in the body
       );
       console.log(
-        `WAHA: Image message sent via session '${sessionName}' to ${chatId}.`,
+        `WAHA: Image message sent via session '${sessionName}' to ${chatId}. Response Data:`, // Added response data logging
+        response.data
       );
       return response.data;
-    } catch (error) {
+    } catch (error: unknown) { // Use unknown for better type safety
       console.error(
-        `WAHA: Failed to send image message via session '${sessionName}':`,
+        `WAHA: Failed to send image message via session '${sessionName}' to ${chatId}:`, // Added chatId to log
         error,
       );
-      throw new Error("Failed to send image message via WAHA.");
+      // Add detailed error logging
+      if (axios.isAxiosError(error)) {
+          console.error(`WAHA: Axios Error Details for image message:`, {
+              status: error.response?.status,
+              data: error.response?.data,
+              message: error.message,
+              config: error.config,
+          });
+      } else if (error instanceof Error) {
+          console.error(`WAHA: Generic Error Details for image message:`, error);
+      }
+      throw new Error("Failed to send image message via WAHA.", { cause: error }); // Preserve error context
     }
   }
 
