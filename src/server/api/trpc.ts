@@ -11,8 +11,14 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import { ZodError } from "zod";
 
+// In-memory store for rate limiting (replace with Redis in production)
+const requestCounts = new Map<string, { count: number; timestamp: number }>();
+const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
+const MAX_REQUESTS_PER_WINDOW = 60; // 60 requests per minute per user
+
 import { auth } from "~/server/auth";
 import { db } from "~/server/db";
+import { verifyCsrfToken } from "~/server/auth/csrfToken"; // Import the verification function
 
 /**
  * 1. CONTEXT
@@ -120,10 +126,45 @@ export const publicProcedure = t.procedure.use(timingMiddleware);
  */
 export const protectedProcedure = t.procedure
   .use(timingMiddleware)
-  .use(({ ctx, next }) => {
+  .use(({ ctx, next, type, path }) => { // Add 'type' and 'path' to context
     if (!ctx.session?.user) {
       throw new TRPCError({ code: "UNAUTHORIZED" });
     }
+
+    const userId = ctx.session.user.id;
+    const now = Date.now();
+    const userRequestData = requestCounts.get(userId) || { count: 0, timestamp: now };
+
+    // Reset count if window has passed
+    if (now - userRequestData.timestamp > RATE_LIMIT_WINDOW_MS) {
+      userRequestData.count = 0;
+      userRequestData.timestamp = now;
+    }
+
+    userRequestData.count++;
+    requestCounts.set(userId, userRequestData);
+
+    if (userRequestData.count > MAX_REQUESTS_PER_WINDOW) {
+      console.warn(`Rate limit exceeded for user ${userId} on path ${path}`);
+      throw new TRPCError({
+        code: "TOO_MANY_REQUESTS",
+        message: `Rate limit exceeded. Maximum ${MAX_REQUESTS_PER_WINDOW} requests per minute.`,
+      });
+    }
+
+    // Apply CSRF check only to mutations
+    if (type === 'mutation') {
+      const submittedToken = ctx.headers.get('x-csrf-token'); // Get token from header
+
+      // Verify the submitted token against the token in the session
+      if (!submittedToken || !verifyCsrfToken(submittedToken, ctx.session)) {
+         throw new TRPCError({
+           code: "FORBIDDEN",
+           message: "Invalid CSRF token.",
+         });
+      }
+    }
+
     return next({
       ctx: {
         // infers the `session` as non-nullable

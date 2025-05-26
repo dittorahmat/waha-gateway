@@ -1,6 +1,7 @@
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc"; // Corrected import path
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
+import DOMPurify from "dompurify"; // Import DOMPurify
 
 export const templateRouter = createTRPCRouter({
   create: protectedProcedure
@@ -12,11 +13,12 @@ export const templateRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
+      const sanitizedTextContent = DOMPurify.sanitize(input.textContent); // Sanitize content
       const template = await ctx.db.messageTemplate.create({
         data: {
           userId,
           name: input.name,
-          textContent: input.textContent,
+          textContent: sanitizedTextContent, // Use sanitized content
         },
       });
       return template;
@@ -67,12 +69,13 @@ export const templateRouter = createTRPCRouter({
           message: "Template not found or you do not have permission to update it.",
         });
       }
+      const sanitizedTextContent = DOMPurify.sanitize(input.textContent); // Sanitize content
       // Proceed with the update
       const updatedTemplate = await ctx.db.messageTemplate.update({
         where: { id: input.id }, // No need for userId here as we already checked ownership
         data: {
           name: input.name,
-          textContent: input.textContent,
+          textContent: sanitizedTextContent, // Use sanitized content
         },
       });
       return updatedTemplate;

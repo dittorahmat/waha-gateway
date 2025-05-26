@@ -111,5 +111,51 @@ export const authConfig = {
   pages: {
     signIn: '/auth/signin', // Redirect users to custom sign-in page
     // error: '/auth/error', // Optional: Custom error page
+  },
+  cookies: {
+    sessionToken: {
+      name: process.env.NODE_ENV === 'production' ? '__Secure-next-auth.session-token' : 'next-auth.session-token',
+      options: {
+        httpOnly: true,
+        sameSite: 'lax', // Or 'strict' depending on requirements
+        path: '/',
+        secure: process.env.NODE_ENV === 'production',
+      },
+    },
+    csrfToken: {
+      name: process.env.NODE_ENV === 'production' ? '__Host-next-auth.csrf-token' : 'next-auth.csrf-token',
+      options: {
+        httpOnly: true,
+        sameSite: 'lax', // Or 'strict' depending on requirements
+        path: '/',
+        secure: process.env.NODE_ENV === 'production',
+      },
+    },
+    pkceCodeVerifier: {
+      options: {
+        httpOnly: true,
+        sameSite: 'lax', // Or 'strict' depending on requirements
+        path: '/',
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 900, // 15 minutes
+      }
+    },
+    state: {
+      options: {
+        httpOnly: true,
+        sameSite: 'lax', // Or 'strict' depending on requirements
+        path: '/',
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 900, // 15 minutes
+      }
+    },
+    nonce: {
+      options: {
+        httpOnly: true,
+        sameSite: 'lax', // Or 'strict' depending on requirements
+        path: '/',
+        secure: process.env.NODE_ENV === 'production',
+      }
+    }
   }
 } satisfies NextAuthConfig;

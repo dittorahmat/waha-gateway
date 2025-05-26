@@ -149,8 +149,9 @@ export const contactListRouter = createTRPCRouter({
         pageSize: z.number().min(1, "Page size must be at least 1"),
       }),
     )
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => { // Add ctx here
       const { listId, page, pageSize } = input;
+      const userId = ctx.session.user.id; // Extract userId here
 
       // Calculate skip and take for pagination
       const skip = (page - 1) * pageSize;
@@ -159,7 +160,12 @@ export const contactListRouter = createTRPCRouter({
       // Fetch paginated contacts and total count concurrently
       const [contacts, totalCount] = await Promise.all([
         db.contact.findMany({
-          where: { contactListId: listId },
+          where: {
+            contactListId: listId,
+            contactList: { // Navigate to the contactList relation (corrected casing)
+              userId: ctx.session.user.id, // Add user ID check
+            },
+          },
           skip: skip,
           take: take,
           orderBy: {
@@ -167,7 +173,12 @@ export const contactListRouter = createTRPCRouter({
           },
         }),
         db.contact.count({
-          where: { contactListId: listId },
+          where: {
+             contactListId: listId,
+             contactList: { // Navigate to the contactList relation (corrected casing)
+              userId: ctx.session.user.id, // Add user ID check
+            },
+          },
         }),
       ]);
 

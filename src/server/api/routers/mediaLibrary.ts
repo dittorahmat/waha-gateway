@@ -35,6 +35,53 @@ export const mediaLibraryRouter = createTRPCRouter({
       const userId = ctx.session.user.id;
       const { filename, fileContentBase64, mimeType } = input;
 
+      // 1. Decode the base64 string
+      const fileContent = Buffer.from(fileContentBase64, 'base64');
+
+      // 2. File Type Validation: Allow only specific image and video types
+      const allowedMimeTypes = [
+        'image/jpeg',
+        'image/png',
+        'image/gif',
+        'image/webp',
+        'video/mp4',
+        'video/webm',
+      ];
+      if (!allowedMimeTypes.includes(mimeType)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Disallowed file type: ${mimeType}. Allowed types are: ${allowedMimeTypes.join(', ')}`,
+        });
+      }
+
+      // 3. File Size Validation: Limit file size (e.g., 10MB)
+      const maxFileSize = 10 * 1024 * 1024; // 10 MB
+      if (fileContent.length > maxFileSize) {
+        throw new TRPCError({
+          code: "PAYLOAD_TOO_LARGE",
+          message: `File size exceeds the limit of ${maxFileSize / (1024 * 1024)}MB.`,
+        });
+      }
+
+      // TODO: Implement malicious content scanning before storing the file.
+      // This might involve integrating with an external scanning service or using a library.
+
+      // TODO: Implement secure storage logic.
+      // This would involve uploading the `fileContent` buffer to a storage service (e.g., S3, GCS, local disk)
+      // and getting the storage path/URL. Ensure storage prevents directory traversal or execution of uploaded files.
+
+      // Placeholder logic: In a real implementation, this would involve:
+      // 1. Decoding the base64 string. (DONE above)
+      // 2. Uploading the file content to a storage service (e.g., S3, GCS, local disk). (TODO)
+      // 3. Getting the storage path/URL. (TODO)
+      // 4. Saving the metadata to the database. (TODO - currently simulated)
+
+      console.log(`Processing file "${filename}" (${mimeType}) for user ${userId}`);
+      console.log(`File size: ${fileContent.length} bytes`);
+
+      // Simulate database insertion and return a dummy ID
+      // In a real scenario, replace this with actual DB insertion after upload
+
       // Placeholder logic: In a real implementation, this would involve:
       // 1. Decoding the base64 string.
       // 2. Uploading the file content to a storage service (e.g., S3, GCS, local disk).

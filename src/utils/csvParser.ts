@@ -1,4 +1,11 @@
 import Papa from "papaparse";
+import DOMPurify from "dompurify";
+import { JSDOM } from "jsdom";
+
+// Setup JSDOM for DOMPurify
+const window = new JSDOM('').window;
+const purify = DOMPurify(window);
+
 
 export interface ParsedContact {
   phoneNumber: string;
@@ -17,6 +24,7 @@ const PHONE_REGEX = /^\d{7,15}$/;
  * Parses a CSV file content (base64 encoded) to extract contact information.
  * Validates headers and phone number format.
  * Formats phone numbers to number@c.us.
+ * Sanitizes first name to prevent XSS.
  *
  * @param fileContentBase64 - The base64 encoded content of the CSV file.
  * @returns An object containing the list of parsed contacts and any errors encountered.
@@ -70,7 +78,7 @@ export function parseContactsCSV(fileContentBase64: string): ParseResult {
 
       const contact: ParsedContact = { phoneNumber: formattedPhoneNumber };
       if (firstName) {
-        contact.firstName = firstName;
+        contact.firstName = purify.sanitize(firstName); // Sanitize first name
       }
       contacts.push(contact);
     });

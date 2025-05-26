@@ -3,7 +3,7 @@ import { TRPCError } from "@trpc/server";
 
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 console.log('[ROUTER LOG] require.resolve ../../db.ts:', require.resolve('../../db.ts'));
-import { db } from '../../db.ts';
+import { db } from '../../db';
 console.log('[ROUTER LOG] db instance at router load:', db, 'typeof:', typeof db, 'constructor:', db?.constructor?.name, 'keys:', Object.keys(db));
 import {
   WahaApiClient,
@@ -355,10 +355,22 @@ export const wahaRouter = createTRPCRouter({
       // }
 
       try {
+        // Basic sanitization for the text field
+        const sanitizedText = input.text.replace(/[&<>"']/g, (match) => {
+          switch (match) {
+            case '&': return '&';
+            case '<': return '<';
+            case '>': return '>';
+            case '"': return '"';
+            case "'": return '&#039;';
+            default: return match;
+          }
+        });
+
         const result = await wahaClient.sendTextMessage(
           WAHA_DEFAULT_SESSION_NAME,
           input.chatId,
-          input.text,
+          sanitizedText, // Use the sanitized text
         );
 
         console.log(
