@@ -36,12 +36,25 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "~/components/ui/alert-dialog"; // Import AlertDialog
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "~/components/ui/dialog"; // Import Dialog components
 import { toast } from "sonner"; // Use sonner for toasts
 import { api } from "~/trpc/react";
 import type { RouterOutputs } from "~/trpc/react"; // Import RouterOutputs type
+import {
+  type PaginationState, // Import PaginationState as type
+} from "@tanstack/react-table"; // Import PaginationState
 
 // Define the type for a single contact list item based on the router output
 type ContactList = RouterOutputs["contactList"]["list"][number];
+// Define the type for a single contact based on the router output
+// Assuming a tRPC endpoint contactList.getContactsByListId exists
+type Contact = RouterOutputs["contactList"]["getContactsByListId"]["contacts"][number];
 // Zod schema for the upload form
 const formSchema = z.object({
   name: z.string().min(1, { message: "List name is required." }),
@@ -58,10 +71,38 @@ export default function ContactListPage() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [listToDelete, setListToDelete] = useState<ContactList | null>(null);
 
+  // State for viewing contacts
+  const [showViewDialog, setShowViewDialog] = useState(false);
+  const [listView, setListView] = useState<ContactList | null>(null);
+
   const utils = api.useUtils(); // Get tRPC utils for invalidation
 
   // --- Queries & Mutations ---
   const { data: contactLists, isLoading: isLoadingLists } = api.contactList.list.useQuery();
+
+  // State for pagination of contacts within a list
+  const [contactPagination, setContactPagination] = useState<PaginationState>({
+    pageIndex: 0,
+    pageSize: 10, // Default items per page
+  });
+
+  // tRPC query to fetch contacts for a specific list with pagination
+  const {
+    data: contactsData,
+    isLoading: isLoadingContacts,
+    isPlaceholderData: isContactsPlaceholderData,
+  } = api.contactList.getContactsByListId.useQuery(
+    {
+      listId: listView?.id ?? "", // Pass the selected list ID
+      page: contactPagination.pageIndex + 1, // tRPC query likely expects 1-based page number
+      pageSize: contactPagination.pageSize,
+    },
+    {
+      enabled: !!listView, // Only fetch if a list is selected
+      placeholderData: (previousData: RouterOutputs["contactList"]["getContactsByListId"] | undefined) => previousData, // Keep previous data while fetching
+    },
+  );
+
 
   const uploadMutation = api.contactList.upload.useMutation({
     onSuccess: (data) => {
@@ -175,6 +216,12 @@ export default function ContactListPage() {
     }
   };
 
+  // --- Handlers ---
+  const handleViewListClick = (list: ContactList) => {
+    setListView(list);
+    setShowViewDialog(true);
+  };
+
   // --- Table Columns ---
   const columns: ColumnDef<ContactList>[] = [
     {
@@ -207,6 +254,11 @@ export default function ContactListPage() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuLabel>Actions</DropdownMenuLabel>
+              <DropdownMenuItem
+                onClick={() => handleViewListClick(list)}
+              >
+                View List
+              </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => handleDeleteClick(list)}
                 className="text-red-600 focus:text-red-700 focus:bg-red-50"
@@ -333,6 +385,38 @@ export default function ContactListPage() {
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* View Contacts Dialog */}
+      <Dialog open={showViewDialog} onOpenChange={setShowViewDialog}>
+        <DialogContent className="sm:max-w-[800px]">
+          <DialogHeader>
+            <DialogTitle>Contacts for "{listView?.name}"</DialogTitle>
+            <DialogDescription>
+              Viewing contacts for the selected list.
+            </DialogDescription>
+          </DialogHeader>
+          {/* Contact Table will go here */}
+          <div>
+            {isLoadingContacts ? (
+              <p className="text-center text-muted-foreground py-4">Loading contacts...</p>
+            ) : contactsData ? (
+              <DataTable
+                columns={[
+                  { accessorKey: "phoneNumber", header: "Phone Number" }, // Change from phone_number
+                  { accessorKey: "firstName", header: "First Name" },   // Change from first_name
+                ]}
+                data={contactsData.contacts}
+                pageCount={Math.ceil(contactsData.totalCount / contactPagination.pageSize)}
+                pagination={contactPagination}
+                onPaginationChange={setContactPagination}
+                filterColumnId="phoneNumber" // Assuming phoneNumber is a filterable column
+                filterPlaceholder="Filter by phone number..."
+              />
+            ) : (
+              <p className="text-center text-red-600 py-4">Error loading contacts.</p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -1,29 +1,115 @@
-# Create T3 App
+# WAHA Gateway
 
-This is a [T3 Stack](https://create.t3.gg/) project bootstrapped with `create-t3-app`.
+WAHA Gateway is a marketing campaign application built on the T3 Stack that allows users to send personalized messages via WhatsApp using the WAHA API.
 
-## What's next? How do I make an app with this?
+## Features
 
-We try to keep this project as simple as possible, so you can start with just the scaffolding we set up for you, and add additional things later when they become necessary.
+### Implemented / In Progress
 
-If you are not familiar with the different technologies used in this project, please refer to the respective docs. If you still are in the wind, please join our [Discord](https://t3.gg/discord) and ask for help.
+*   **Campaign Creation:** Create and save new campaign records, linking them to existing contact lists, message templates, and optional media items.
+*   **Campaign Running:** Backend service to process contacts for a campaign, personalize messages, and send them via the WAHA API.
+*   **WAHA Integration:** Integrate actual `sendText` and `sendImage` API calls into the campaign runner.
+*   **Configurable Delay:** Implement a configurable randomized delay between sending messages in the campaign runner.
+*   **Status Check & Pause:** Check WAHA session status during campaign runs and pause the campaign if the session is not `WORKING` or if status check fails, saving progress.
+*   **Manual Campaign Resume:** Allow users to manually resume paused campaigns from where they left off.
+*   **Campaign History & Dashboard:** Create dashboard overview and campaign history pages with pagination to display campaign information.
+*   **UI Polish:** Integrate UI notifications (Sonner), apply consistent styling, and add a persistent WhatsApp blocking warning.
 
-- [Next.js](https://nextjs.org)
-- [NextAuth.js](https://next-auth.js.org)
-- [Prisma](https://prisma.io)
-- [Drizzle](https://orm.drizzle.team)
-- [Tailwind CSS](https://tailwindcss.com)
-- [tRPC](https://trpc.io)
+### Planned
 
-## Learn More
+*   **Job Scheduling:** Replace manual campaign triggers with a `node-cron` based job scheduler to run campaigns at their scheduled time.
+*   **Comprehensive Testing:** Implement robust Unit, Integration, and End-to-End (E2E) testing using Vitest and Playwright.
 
-To learn more about the [T3 Stack](https://create.t3.gg/), take a look at the following resources:
+## Technologies Used
 
-- [Documentation](https://create.t3.gg/)
-- [Learn the T3 Stack](https://create.t3.gg/en/faq#what-learning-resources-are-currently-available) — Check out these awesome tutorials
+*   [Next.js](https://nextjs.org)
+*   [NextAuth.js](https://next-auth.js.org)
+*   [Prisma](https://prisma.io)
+*   [Tailwind CSS](https://tailwindcss.com)
+*   [tRPC](https://trpc.io)
+*   [node-cron](https://www.npmjs.com/package/node-cron)
+*   [Sonner](https://sonner.emilkowal.ski/)
+*   [Vitest](https://vitest.dev/)
+*   [Playwright](https://playwright.dev/)
+*   WAHA API
 
-You can check out the [create-t3-app GitHub repository](https://github.com/t3-oss/create-t3-app) — your feedback and contributions are welcome!
+## Setup and Installation
 
-## How do I deploy this?
+Follow these steps to set up the project locally:
 
-Follow our deployment guides for [Vercel](https://create.t3.gg/en/deployment/vercel), [Netlify](https://create.t3.gg/en/deployment/netlify) and [Docker](https://create.t3.gg/en/deployment/docker) for more information.
+1.  **Clone the repository:**
+    ```bash
+    git clone [repository_url]
+    cd waha-gateway # Or the name of the cloned directory
+    ```
+2.  **Install dependencies:**
+    ```bash
+    npm install
+    ```
+3.  **Set up environment variables:**
+    *   Copy the example environment file:
+        ```bash
+        cp .env.example .env
+        ```
+    *   Edit the `.env` file and fill in the required values, including database credentials and WAHA API details.
+4.  **Set up the database:**
+    *   Ensure you have a PostgreSQL database running.
+    *   Run Prisma migrations to set up the database schema:
+        ```bash
+        npx prisma migrate dev
+        ```
+    *   Alternatively, you can use the provided script to start a local database (if available and configured):
+        ```bash
+        ./start-database.sh
+        ```
+5.  **Start the development server:**
+    ```bash
+    npm run dev
+    ```
+    The application should now be running at `http://localhost:3000`.
+
+## Development
+
+*   **Run the development server:**
+    ```bash
+    npm run dev
+    ```
+*   **Run unit and integration tests (Vitest):**
+    ```bash
+    npm run test
+    ```
+*   **Run end-to-end tests (Playwright):**
+    ```bash
+    npx playwright test
+    ```
+*   **Check and fix linting issues:**
+    ```bash
+    npm run lint
+    npm run lint:fix
+    ```
+*   **Check and fix formatting issues:**
+    ```bash
+    npm run format:check
+    ```
+*   **Check and fix formatting issues:**
+    ```bash
+    npm run format
+    ```
+
+## Deployment
+
+To deploy the application, you will first need to build it:
+
+```bash
+npm run build
+```
+
+Refer to the deployment guides for specific platforms:
+
+*   [Vercel](https://create.t3.gg/en/deployment/vercel)
+*   [Netlify](https://create.t3.gg/en/deployment/netlify)
+*   [Docker](https://create.t3.gg/en/deployment/docker)
+
+## Warning
+
+Automating WhatsApp messages carries a significant risk of your number being blocked by WhatsApp. Use this tool responsibly and at your own risk. Ensure you comply with WhatsApp's Terms of Service.

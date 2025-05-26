@@ -140,4 +140,40 @@ export const contactListRouter = createTRPCRouter({
         });
       }
     }),
+
+  getContactsByListId: protectedProcedure
+    .input(
+      z.object({
+        listId: z.string(),
+        page: z.number().min(1, "Page number must be at least 1"),
+        pageSize: z.number().min(1, "Page size must be at least 1"),
+      }),
+    )
+    .query(async ({ input }) => {
+      const { listId, page, pageSize } = input;
+
+      // Calculate skip and take for pagination
+      const skip = (page - 1) * pageSize;
+      const take = pageSize;
+
+      // Fetch paginated contacts and total count concurrently
+      const [contacts, totalCount] = await Promise.all([
+        db.contact.findMany({
+          where: { contactListId: listId },
+          skip: skip,
+          take: take,
+          orderBy: {
+            id: "asc", // Order by ID for consistent pagination
+          },
+        }),
+        db.contact.count({
+          where: { contactListId: listId },
+        }),
+      ]);
+
+      return {
+        contacts,
+        totalCount,
+      };
+    }),
 });
